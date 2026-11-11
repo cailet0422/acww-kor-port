@@ -23,12 +23,18 @@
 
 #include <stdint.h>
 
+#include "scene.h"
+
 #define TALL3D_W 256
 #define TALL3D_H 192
 
 /* Before the run starts: the tall view or not, and the size (1 to 3 times the DS's). At size
  * 1 without the tall view no copy runs, and the cost is nothing. */
 void tall3d_enable(int tall_view, int scale);
+
+/* Instead of that: the scene, whole (two screens high with the tall view), handed to `sink`
+ * frame by frame for another renderer to draw (scene.h, docs/renderer.md). */
+void tall3d_enable_scene(int tall_view, SceneSink sink, void *user);
 int tall3d_scale(void);
 
 /* For the frame the drawing thread has just finished (call it from frame_output_hook): the

@@ -4,6 +4,8 @@
 
 #include <stdint.h>
 
+struct Scene;
+
 typedef struct Engine3d {
     void (*init)(void);
     void (*write)(uint32_t offset, uint32_t value);
@@ -13,6 +15,8 @@ typedef struct Engine3d {
     void (*render)(int list);
     const uint32_t *(*line_rgb6)(int y);
     int (*prepare)(void);
+    /* the list of a swap as a scene for another renderer (scene.h); the first copy has it */
+    void (*scene)(int list, struct Scene *scene);
 } Engine3d;
 
 /* as many as a picture three times the DS's size needs: 3 x 6 tiles */

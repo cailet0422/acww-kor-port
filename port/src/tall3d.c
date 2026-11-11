@@ -9,6 +9,7 @@
 #include "io.h"
 #include "render.h"
 
+#include "scene.h"
 #include "tall3d_engine.h"
 
 /* the game's own engine (gpu3d_main.c) and the copies (gpu3d_tile.c, tall3d_engines.c) */
@@ -45,8 +46,26 @@ typedef struct Tile {
 } Tile;
 static Tile tile[TALL3D_ENGINES];
 
+/* The scene engine, in place of the tiles: one copy of the engine that sees the whole view as
+ * its screen and whose lists go to another renderer as scenes, undrawn here (scene.h). */
+static SceneSink scene_sink;
+static void *scene_user;
+
+void tall3d_enable_scene(int tall_view, SceneSink sink, void *user)
+{
+    tall = tall_view != 0;
+    scale = 1;
+    top_row = 0;
+    rows = tiles = 1;
+    scene_sink = sink;
+    scene_user = user;
+    tile[0].engine = tall3d_engines[0];
+    tile[0].ox = tile[0].oy = 0;
+}
+
 void tall3d_enable(int tall_view, int size)
 {
+    scene_sink = NULL;
     tall = tall_view != 0;
     scale = size < 1 ? 1 : size > TALL3D_SCALE_MAX ? TALL3D_SCALE_MAX : size;
     /* The whole view is two screens high, y from -w (the lower screen's bottom) to 3w (the
@@ -133,7 +152,13 @@ static void load_moved(Tile *t, const int32_t m[16])
     for (int r = 0; r < 4; r++) {
         for (int c = 0; c < 4; c++) {
             uint32_t v = (uint32_t) m[4 * r + c], w = (uint32_t) m[4 * r + 3];
-            if (c == 0) {
+            if (scene_sink != NULL) {
+                /* the scene engine's screen is the whole view: as it is, or with the tall view
+                   two screens high, y from -w to 3w brought to -w..w: y' = (y - w) / 2 */
+                if (c == 1 && tall) {
+                    v = (uint32_t) ((int32_t) (v - w) >> 1);
+                }
+            } else if (c == 0) {
                 v = (uint32_t) scale * v + (uint32_t) t->ox * w;
             } else if (c == 1) {
                 v = (uint32_t) scale * v + (uint32_t) t->oy * w;
@@ -276,7 +301,12 @@ static void *tile_thread(void *arg)
             pthread_cond_wait(&moved, &lock);
         }
         pthread_mutex_unlock(&lock);
-        if (list >= 0) {
+        if (list >= 0 && scene_sink != NULL) {
+            static Scene scene;
+            t->engine->scene(list, &scene);
+            scene.tall = tall;
+            scene_sink(&scene, scene_user);
+        } else if (list >= 0) {
             t->engine->render(list);
         }
         pthread_mutex_lock(&lock);
@@ -435,7 +465,7 @@ static int picture_valid;
 
 const uint32_t *gpu3d_line_rgb6(int y)
 {
-    if (tiles > 0 && y >= 0 && y < TALL3D_H) {
+    if (tiles > 0 && scene_sink == NULL && y >= 0 && y < TALL3D_H) {
         /* the DS's line y is `scale` rows of each screen's part of the picture */
         for (int half = top_row / scale; half < 2; half++) {
             for (int k = 0; k < scale; k++) {
@@ -470,7 +500,7 @@ int tall3d_picture(const uint32_t **upper, const uint32_t **lower, int *stride, 
     if (!shown) {
         picture_valid = 0;
     }
-    if (tiles == 0 || !picture_valid) {
+    if (tiles == 0 || !picture_valid || scene_sink != NULL) {
         return 0;
     }
     *stride = TALL3D_W * TALL3D_SCALE_MAX;

@@ -184,10 +184,21 @@ else()
     set(SDL_TARGET SDL2::SDL2)
 endif()
 
+# The Vulkan renderer's tool (docs/renderer.md): scenes from files drawn on this machine's
+# Vulkan device. Built where the Vulkan headers are; the library is found when it runs.
+find_path(VULKAN_HEADERS vulkan/vulkan.h)
+if(VULKAN_HEADERS AND NOT ANDROID)
+    add_executable(acww-scene-vk tools/scene_vk.c src/vk_scene.c src/scene_file.c)
+    target_include_directories(acww-scene-vk PRIVATE src "${VULKAN_HEADERS}")
+    target_compile_options(acww-scene-vk PRIVATE -std=c11 -Wall -Wextra)
+    target_compile_definitions(acww-scene-vk PRIVATE _DEFAULT_SOURCE)
+    target_link_libraries(acww-scene-vk PRIVATE ${CMAKE_DL_LIBS} m)
+endif()
+
 # run.c is built through run_port.c, which adds the port's hooks into the game's code behind
 # the run's own (src/game_hooks.h)
-set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/run_port.c src/sound_sdl.c
-    src/ds_audio_port.c)
+set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/scene_file.c src/run_port.c
+    src/sound_sdl.c src/ds_audio_port.c)
 set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
 if(ANDROID)
     # SDLActivity loads libSDL2.so and libmain.so, and calls SDL_main

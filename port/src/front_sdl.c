@@ -45,6 +45,7 @@
 #include "mix2d.h"
 #include "render.h"
 #include "rom_prep.h"
+#include "scene_file.h"
 #include "tall3d.h"
 #include "tall3d_engine.h"
 #include "touch.h"
@@ -112,6 +113,9 @@ static void usage(void)
             "  --two-screens   the DS's two pictures as they are, without the 3D scene continued\n"
             "                  onto the upper screen\n"
             "  --no-above      with the tall view, draw only the objects the game itself would\n"
+            "  --scene-dump    with --shot: the frame's 3D scene as scene-N.bin in DATA, for the\n"
+            "                  renderer's tool (without it, at a larger size, tiles-N.bin: the 3D\n"
+            "                  picture as the software draws it)\n"
             "  --hash FILE     write each frame's hashes there (the decomp's RUN_HASH), to compare runs\n"
             "  --picture-hash FILE  write a hash of each picture as the port shows it (the tall\n"
             "                  view and the larger scene included)\n"
@@ -1081,6 +1085,57 @@ static void put_together(const uint32_t *upper, const uint32_t *lower)
     }
 }
 
+/* --scene-dump: the 3D scene of each --shot frame written beside it, for trying a renderer
+ * on it (scene_file.h): scene-N.bin, the scene as the geometry engine left it. Without the
+ * option, at a larger size, tiles-N.bin: the 3D picture alone as the software tiles drew it,
+ * which a renderer's picture of the same frame is compared with. */
+static int scene_dump;
+static Scene *scene_kept;
+static SDL_mutex *scene_lock;
+
+static void scene_keep(const Scene *scene, void *user)
+{
+    (void) user;
+    Scene *copy = scene_copy(scene);
+    SDL_LockMutex(scene_lock);
+    scene_free(scene_kept);
+    scene_kept = copy;
+    SDL_UnlockMutex(scene_lock);
+}
+
+static void scene_shot(uint32_t frame)
+{
+    char path[PATH_SIZE + 64];
+    if (scene_dump) {
+        snprintf(path, sizeof(path), "%s/scene-%05u.bin", opt.data, frame);
+        SDL_LockMutex(scene_lock);
+        if (scene_kept != NULL) {
+            scene_write(path, scene_kept);
+        }
+        SDL_UnlockMutex(scene_lock);
+        return;
+    }
+    const uint32_t *upper = NULL, *lower = NULL;
+    int stride = 0;
+    uint32_t bright = 0;
+    if (picture_scale > 1 && tall3d_picture(&upper, &lower, &stride, &bright) && lower != NULL) {
+        /* the width, the height, then the rows from the top: 6-bit red, green and blue in
+           bits 0-5, 8-13 and 16-21, and the alpha, 0 to 31, in bits 24-28 */
+        uint32_t w = (uint32_t) PICTURE_W, h = (uint32_t) (upper != NULL ? PICTURE_H : PICTURE_H / 2);
+        snprintf(path, sizeof(path), "%s/tiles-%05u.bin", opt.data, frame);
+        FILE *f = fopen(path, "wb");
+        if (f != NULL) {
+            fwrite(&w, 4, 1, f);
+            fwrite(&h, 4, 1, f);
+            for (uint32_t y = 0; y < h; y++) {
+                const uint32_t *row = upper != NULL ? upper + y * (uint32_t) stride : lower + y * (uint32_t) stride;
+                fwrite(row, 4, w, f);
+            }
+            fclose(f);
+        }
+    }
+}
+
 /* --picture-hash FILE: a line for each frame's picture as the port shows it (the tall view
  * and the larger scene included, which the decomp's own hashes, --hash, do not cover) */
 static FILE *picture_hashes;
@@ -1102,6 +1157,7 @@ static void on_frame_output(uint32_t frame, const uint32_t *upper, const uint32_
             char path[PATH_SIZE + 64];
             snprintf(path, sizeof(path), "%s/frame-%05u.png", opt.data, frame);
             png_write(path, shown, PICTURE_W, PICTURE_H);
+            scene_shot(frame);
         }
     }
     SDL_UnlockMutex(shown_lock);
@@ -1343,6 +1399,8 @@ int main(int argc, char **argv)
             sscanf(argv[++i], "%dx%d", &opt.width, &opt.height);
         } else if (strcmp(a, "--window-shot") == 0 && more) {
             opt.window_shot = (uint32_t) strtoul(argv[++i], NULL, 10);
+        } else if (strcmp(a, "--scene-dump") == 0) {
+            scene_dump = 1;
         } else if (strcmp(a, "--two-screens") == 0) {
             opt.tall = 0;
             two_screens = 1;
@@ -1455,7 +1513,12 @@ int main(int argc, char **argv)
     SDL_Log("      Shift or Backspace = SELECT, mouse on the lower screen = touch, Tab = fast forward, F12 = screenshot");
 
     picture_scale = opt.resolution;
-    tall3d_enable(opt.tall, picture_scale);
+    if (scene_dump) {
+        scene_lock = SDL_CreateMutex();
+        tall3d_enable_scene(opt.tall, scene_keep, NULL);
+    } else {
+        tall3d_enable(opt.tall, picture_scale);
+    }
     mix2d_enable(picture_scale > 1);
     shown_lock = SDL_CreateMutex();
     counter_hz = (double) SDL_GetPerformanceFrequency();
