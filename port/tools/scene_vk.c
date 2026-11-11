@@ -3,7 +3,10 @@
  * machine has: the renderer tried away from the game, and compared with the software's
  * picture of the same frame (port/tests/test_scene_vk.py).
  *
- *     acww-scene-vk SCENE WIDTH HEIGHT OUT [SAMPLES]
+ *     acww-scene-vk SCENE WIDTH HEIGHT OUT [SAMPLES [EARLIER T]]
+ *
+ * With EARLIER (the scene of the game's frame before) and T (0 to 1), what is drawn is the
+ * scene that part of the way from EARLIER to SCENE (port/src/scene_tween.h).
  *
  * OUT gets WIDTH x HEIGHT pixels, rows from the top, bytes R G B A: the colour multiplied by
  * the alpha, and the alpha.
@@ -14,6 +17,7 @@
 #include <string.h>
 
 #include "scene_file.h"
+#include "scene_tween.h"
 #include "vk_scene.h"
 
 int main(int argc, char **argv)
@@ -27,6 +31,18 @@ int main(int argc, char **argv)
     if (scene == NULL || width <= 0 || height <= 0) {
         fprintf(stderr, "cannot read the scene %s\n", argv[1]);
         return 1;
+    }
+    if (argc > 7) {
+        Scene *earlier = scene_read(argv[6]);
+        int moved = 0, of = 0;
+        Scene *between = earlier != NULL ? scene_between(earlier, scene, (float) atof(argv[7]), &moved, &of) : NULL;
+        if (between == NULL) {
+            fprintf(stderr, "cannot read the scene %s\n", argv[6]);
+            return 1;
+        }
+        printf("between: %d of %d polygons on the way from %s (%d given there, %d here)\n", moved, of, argv[6], earlier->raw_count,
+               scene->raw_count);
+        scene = between;
     }
     /* what the scene uses, for whoever is finding out what the renderer has to do */
     int modes[4] = {0}, translucent = 0, textured = 0, shadows = 0, wire = 0, equal = 0, wbuffer = 0, fogged = 0, formats[8] = {0};

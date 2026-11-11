@@ -197,11 +197,12 @@ public class SettingsActivity extends Activity {
     /* The pages -------------------------------------------------------------------------------- */
 
     private void displayPage() {
-        final LinearLayout[] size = new LinearLayout[2];
+        final LinearLayout[] size = new LinearLayout[3];
         final TextView[] turnedOff = new TextView[1];
         content.addView(toggle("vulkan", true, R.string.settings_vulkan, R.string.settings_vulkan_about, true, on -> {
             dim(size[0], on);
             dim(size[1], !on);
+            dim(size[2], !on);
             if (on) {
                 /* turned on again by hand: the game's word on why it turned it off goes */
                 removeLine("vulkan_off");
@@ -220,6 +221,8 @@ public class SettingsActivity extends Activity {
         if (!now.isEmpty()) {
             content.addView(note(getString(R.string.settings_now) + " " + now + (why.isEmpty() ? "" : "\n" + why)));
         }
+        size[2] = toggle("fps60", true, R.string.settings_fps60, R.string.settings_fps60_about, false, null);
+        content.addView(size[2]);
         size[1] = pick("vulkan_scale", 100, new int[] {100, 75, 50}, "%", R.string.settings_vulkan_scale,
                 R.string.settings_vulkan_scale_about, false);
         content.addView(size[1]);
@@ -231,6 +234,7 @@ public class SettingsActivity extends Activity {
         content.addView(size[0]);
         dim(size[0], read("vulkan", true));
         dim(size[1], !read("vulkan", true));
+        dim(size[2], !read("vulkan", true));
         content.addView(divider(8));
         content.addView(toggle("fast_cores", true, R.string.settings_fast_cores, R.string.settings_fast_cores_about, true, null));
         String cores = statusLine("cores:");
@@ -449,6 +453,9 @@ public class SettingsActivity extends Activity {
             return;
         }
         part.setAlpha(dimmed ? 0.4f : 1f);
+        if (part.hasOnClickListeners()) {
+            part.setClickable(!dimmed); /* (a row that is touched as a whole) */
+        }
         for (int i = 0; i < part.getChildCount(); i++) {
             View child = part.getChildAt(i);
             child.setEnabled(!dimmed);

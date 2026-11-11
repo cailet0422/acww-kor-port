@@ -51,6 +51,7 @@
 #include "render.h"
 #include "rom_prep.h"
 #include "scene_file.h"
+#include "scene_tween.h"
 #include "tall3d.h"
 #include "tall3d_engine.h"
 #include "touch.h"
@@ -85,6 +86,7 @@ static struct {
     const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
     int width, height;   /* the window's starting size (--size), else by --scale */
     uint32_t window_shot; /* the frame whose window is saved as a PNG (--window-shot) */
+    uint32_t window_shots; /* and how many frames from it on (--window-shots; 1 without) */
     uint32_t stop_frame; /* 0: none */
     uint32_t shots[8];   /* frames to save as PNGs (--shot) */
     int shot_count;
@@ -118,6 +120,9 @@ static void usage(void)
             "  --vulkan, --no-vulkan  the window drawn through Vulkan, the 3D scene at the window's\n"
             "                  own size and multisampled (on where the device can; \"vulkan=0\" in\n"
             "                  DATA/settings.txt keeps it)\n"
+            "  --fps60, --no-fps60  through Vulkan: scenes made between the game's twenty or\n"
+            "                  thirty a second, for sixty pictures a second at the game's own\n"
+            "                  speed (on; \"fps60=0\" in DATA/settings.txt turns it off)\n"
             "  --no-sound      without sound (\"sound=0\" in DATA/settings.txt keeps it)\n"
             "  --audio-wav FILE  also write the mixer's sound to a new WAV file (the decomp's\n"
             "                  RUN_AUDIO_WAV). Its header says 32768 Hz; the frames are the DS's\n"
@@ -136,6 +141,7 @@ static void usage(void)
             "  --size WxH      the window's starting size in pixels\n"
             "  --touch-script FILE  play fingers from a file (\"FRAME down|move|up FINGER X Y\")\n"
             "  --window-shot N save the window as it is drawn at frame N as a PNG in DATA\n"
+            "  --window-shots COUNT  with --window-shot: that many frames from N on\n"
             "  --two-screens   the DS's two pictures as they are, without the 3D scene continued\n"
             "                  onto the upper screen\n"
             "  --no-above      with the tall view, draw only the objects the game itself would\n"
@@ -524,6 +530,9 @@ static int vulkan_setting = 1;
 static int vulkan_scale_setting = 100;
 /* the threads kept to a phone's fast cores (cores.h): from the next start */
 static int fast_cores_setting = 1;
+/* sixty frames: scenes made between the game's twenty or thirty a second (scene_tween.h); at once */
+static int fps60_setting = 1;
+static unsigned long tween_scenes, tween_moved, tween_polygons; /* made, and how much of them moved */
 static char cores_note[96];
 /* "arrange=1": the settings screen asks for the arranging of the buttons (settings_apply) */
 static int arrange_asked;
@@ -566,6 +575,8 @@ static void settings_load(void)
             tall_setting = v != 0;
         } else if (sscanf(line, "vulkan_scale=%d", &v) == 1) {
             vulkan_scale_setting = v < 25 ? 25 : v > 100 ? 100 : v;
+        } else if (sscanf(line, "fps60=%d", &v) == 1) {
+            fps60_setting = v != 0;
         } else if (sscanf(line, "fast_cores=%d", &v) == 1) {
             fast_cores_setting = v != 0;
         } else if (sscanf(line, "sound=%d", &v) == 1) {
@@ -882,6 +893,8 @@ static void status_write(void)
     } else if (presenter != NULL) {
         fprintf(f, "vulkan: %u frames, %u new surfaces, %u failures%s%s\n", vulkan_frames, vulkan_renewals, vulkan_renew_failures,
                 vulkan_last_error[0] ? ", last: " : "", vulkan_last_error);
+        fprintf(f, "sixty frames: %s, %lu scenes made between, %lu%% of their polygons moved\n", fps60_setting ? "on" : "off",
+                tween_scenes, tween_polygons ? tween_moved * 100 / tween_polygons : 0);
     }
     fclose(f);
 }
@@ -1100,6 +1113,12 @@ static SDL_Texture *enlarged(const SDL_Rect *to)
     return sharp;
 }
 
+/* --window-shot, --window-shots: this frame's window is saved */
+static int window_shot_at(uint32_t frame)
+{
+    return opt.window_shot != 0 && frame >= opt.window_shot && frame - opt.window_shot < (opt.window_shots ? opt.window_shots : 1);
+}
+
 static void window_shot(void)
 {
     int w, h;
@@ -1125,6 +1144,11 @@ static struct {
 } packet;
 static Scene *scene_latest;  /* from the scene engine, not yet a frame's (scene_lock) */
 static Scene *scene_current; /* the scene of the frame shown (shown_lock) */
+/* sixty frames (scene_frame) */
+static Scene *scene_last, *scene_from; /* the game's last scene, and the one the way to it starts at */
+static uint32_t scene_last_output, scene_outputs;
+static uint32_t scene_steps = 1, scene_step = 2; /* the frames the way takes, and the next one's number */
+
 static SDL_mutex *scene_lock;
 
 /* A frame through Vulkan is drawn by a thread of its own, so that the emulation never waits
@@ -1133,12 +1157,24 @@ static SDL_mutex *scene_lock;
  * the screens are in the window, the buttons' triangles) and goes on; the drawing takes the
  * newest of everything when it comes to it, so a GPU that is slower than the game leaves
  * frames out and nothing queues up. Everything of Vulkan's is done under vk_lock, by this
- * thread for the frames and by the emulation's for the surface's coming and going. */
+ * thread for the frames and by the emulation's for the surface's coming and going.
+ *
+ * A frame is drawn as its picture is finished (on_frame_output, on the drawing thread): each
+ * of the sixty a second once and in its turn. Were it drawn at the emulation's word, a
+ * picture finished a moment late would be left out and the one before it shown twice, which
+ * shows once the scene moves in every frame (scene_frame). The emulation's thread asks for
+ * the drawing itself in fast forward (a frame in ten) and when no picture has come for two
+ * frames. */
 static struct {
     SDL_mutex *lock;
     SDL_cond *wake;
     SDL_Thread *thread;
     unsigned posted, taken;
+    int by_output;           /* frames are drawn as their pictures are finished */
+    int forced;              /* this one at the emulation's word all the same */
+    unsigned output_posts;   /* how many were asked for so */
+    uint32_t output_frame;   /* the last finished picture's frame */
+    uint32_t capture_output; /* the capture is of this frame's picture, or of a later one */
     int w, h, top[4], bottom[4];
     int ui_count, scene_percent;
     uint32_t capture_frame; /* this frame's window is saved as a PNG; 0 for none */
@@ -1237,7 +1273,12 @@ static int vulkan_thread(void *arg)
         scene_percent = job.scene_percent;
         memcpy(ui, job.ui, (size_t) ui_count * sizeof(ui[0]));
         capture_frame = job.capture_frame;
-        job.capture_frame = 0;
+        if (job.by_output && !job.forced && job.output_frame < job.capture_output) {
+            capture_frame = 0; /* the picture asked for is still to come */
+        } else {
+            job.capture_frame = 0;
+        }
+        job.forced = 0;
         SDL_UnlockMutex(job.lock);
 
         SDL_LockMutex(vk_lock);
@@ -1276,12 +1317,22 @@ static void draw_vulkan(void)
         job.ui_count = touch_draw_list(&layout, keys_held_keyboard | keys_held_pad | touch_keys(), job.ui,
                                        (int) (sizeof(job.ui) / sizeof(job.ui[0])));
     }
-    int capture = opt.window_shot != 0 && opt.window_shot == frame_now;
+    int capture = window_shot_at(frame_now);
     if (capture) {
         job.capture_frame = frame_now;
+        job.capture_output = frame_now - 1; /* (the picture of the frame just run: they are counted from 0) */
     }
-    job.posted++;
-    SDL_CondBroadcast(job.wake);
+    /* who asks for the drawing: the finished pictures, or this thread */
+    static unsigned posts_seen;
+    static int quiet;
+    quiet = job.output_posts == posts_seen ? quiet + 1 : 0;
+    posts_seen = job.output_posts;
+    job.by_output = !(fast_keyboard || opt.unpaced);
+    if (!job.by_output || quiet >= 2 || (capture && job.output_frame + 1 >= frame_now)) {
+        job.forced = 1; /* the newest picture, whichever it is (one to be saved may be out already) */
+        job.posted++;
+        SDL_CondBroadcast(job.wake);
+    }
     /* a window's picture that was asked for is waited for (a check, or a screenshot): the
        run may end right after this frame */
     Uint32 since = SDL_GetTicks();
@@ -1418,7 +1469,7 @@ static void draw(void)
     if (layout.touch) {
         touch_draw(renderer, &layout, keys_held_keyboard | keys_held_pad | touch_keys());
     }
-    if (opt.window_shot != 0 && opt.window_shot == frame_now) {
+    if (window_shot_at(frame_now)) {
         window_shot();
     }
     SDL_RenderPresent(renderer);
@@ -1607,6 +1658,7 @@ static void screenshot(void)
     if (presenter != NULL) {
         /* through Vulkan the picture is the window's: its next frame is saved (window-N.png) */
         opt.window_shot = frame_now + 1;
+        opt.window_shots = 1;
         SDL_Log("play: screenshot of the window at frame %u (window-%05u.png)", frame_now + 1, frame_now + 1);
         return;
     }
@@ -1881,12 +1933,51 @@ static void scene_frame(const uint32_t *upper, const uint32_t *lower)
         return;
     }
     SDL_LockMutex(scene_lock);
-    if (scene_latest != NULL) {
-        scene_free(scene_current);
-        scene_current = scene_latest;
-        scene_latest = NULL;
-    }
+    Scene *arrived = scene_latest;
+    scene_latest = NULL;
     SDL_UnlockMutex(scene_lock);
+    scene_outputs++;
+    if (arrived != NULL) {
+        /* The game's new scene. With sixty frames on, and when it follows the last one by two
+           to four frames (the game draws twenty or thirty scenes a second), the frames from
+           this one on show the way from the last scene to the new one, a step a frame, and
+           the new scene itself as the next is due: the 3D picture a frame or two late, and
+           moving in sixtieths of a second. Otherwise the new scene at once, as the game has it. */
+        uint32_t steps = scene_last != NULL ? scene_outputs - scene_last_output : 0;
+        scene_free(scene_from);
+        scene_from = NULL;
+        scene_steps = scene_step = 1;
+        if (fps60_setting && opt.vulkan && !scene_dump && steps >= 2 && steps <= 4 && arrived->frame == scene_last->frame + 1 &&
+            arrived->tall == scene_last->tall) {
+            scene_from = scene_last;
+            scene_last = NULL;
+            scene_steps = steps;
+        }
+        scene_free(scene_last);
+        scene_last = arrived;
+        scene_last_output = scene_outputs;
+    }
+    if (scene_last != NULL && scene_step <= scene_steps) {
+        Scene *show = NULL;
+        if (scene_step < scene_steps && scene_from != NULL) {
+            int moved = 0, of = 0;
+            show = scene_between(scene_from, scene_last, (float) scene_step / (float) scene_steps, &moved, &of);
+            if (show != NULL) {
+                tween_scenes++;
+                tween_moved += (unsigned long) moved;
+                tween_polygons += (unsigned long) of;
+            }
+        }
+        if (show == NULL && (scene_step == scene_steps || arrived != NULL)) {
+            show = scene_hold(scene_last); /* the scene itself: its turn, or nothing could be made */
+            scene_step = scene_steps;
+        }
+        if (show != NULL) {
+            scene_free(scene_current);
+            scene_current = show;
+        }
+        scene_step++;
+    }
     if (!opt.vulkan) {
         return;
     }
@@ -1957,6 +2048,17 @@ static void on_frame_output(uint32_t frame, const uint32_t *upper, const uint32_
         }
     }
     SDL_UnlockMutex(shown_lock);
+    /* through Vulkan: this picture's turn in the window (see `job`) */
+    if (job.thread != NULL) {
+        SDL_LockMutex(job.lock);
+        if (job.by_output) {
+            job.output_frame = frame;
+            job.output_posts++;
+            job.posted++;
+            SDL_CondBroadcast(job.wake);
+        }
+        SDL_UnlockMutex(job.lock);
+    }
 }
 
 /* The pacer --------------------------------------------------------------------------------- */
@@ -2099,6 +2201,13 @@ static void on_frame(uint32_t frame)
                 SDL_Log("play: the game's own 3D picture: %lu left undrawn, %lu drawn; the 2D mix: %lu lines, %lu kept from the "
                         "frame before%s",
                         left, drawn, lines, kept, getenv("PORT_MIX_CHECK") != NULL ? (wrong ? ", SOME OF THEM WRONG" : ", all of them right") : "");
+                unsigned long how[5];
+                scene_between_counts(how);
+                if (tween_scenes) {
+                    SDL_Log("play: sixty frames: %lu scenes made between the game's, %lu of their %lu polygons moved (%lu with a "
+                            "flowing texture; not: %lu not noted, %lu new, %lu too far)",
+                            tween_scenes, tween_moved, tween_polygons, how[1], how[2], how[3], how[4]);
+                }
             }
             SDL_Log("play: ended at frame %u", frame);
             vulkan_marker_set(0);
@@ -2114,7 +2223,7 @@ static void on_frame(uint32_t frame)
     }
     /* fast forward: the window every tenth frame is enough, and the drawing would be the
        slowest part of it */
-    if (!(fast_keyboard || opt.unpaced) || frame % 10 == 0 || frame == opt.window_shot) {
+    if (!(fast_keyboard || opt.unpaced) || frame % 10 == 0 || window_shot_at(frame)) {
         draw();
     }
     pace();
@@ -2165,7 +2274,7 @@ int main(int argc, char **argv)
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
     const char *audio_wav = NULL;
-    int autosave = -1, load_autosave = 0, vulkan = -1, link = -1;
+    int autosave = -1, load_autosave = 0, vulkan = -1, link = -1, fps60 = -1;
     const char *link_server = NULL, *link_room = NULL, *wifi_dns = NULL;
     int wifi = -1;
     int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0, resolution = 0; /* as the settings say, unless the command line does */
@@ -2210,6 +2319,8 @@ int main(int argc, char **argv)
             sscanf(argv[++i], "%dx%d", &opt.width, &opt.height);
         } else if (strcmp(a, "--window-shot") == 0 && more) {
             opt.window_shot = (uint32_t) strtoul(argv[++i], NULL, 10);
+        } else if (strcmp(a, "--window-shots") == 0 && more) {
+            opt.window_shots = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--scene-dump") == 0) {
             scene_dump = 1;
         } else if (strcmp(a, "--link-host") == 0) {
@@ -2234,6 +2345,10 @@ int main(int argc, char **argv)
         } else if (strcmp(a, "--vulkan") == 0) {
             vulkan = 1;
             vulkan_explicit = 1;
+        } else if (strcmp(a, "--no-fps60") == 0) {
+            fps60 = 0;
+        } else if (strcmp(a, "--fps60") == 0) {
+            fps60 = 1;
         } else if (strcmp(a, "--vulkan-lose") == 0 && more) {
             vulkan_lose_frame = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--no-vulkan") == 0) {
@@ -2281,6 +2396,7 @@ int main(int argc, char **argv)
         opt.autosave = autosave;
     }
     opt.vulkan = vulkan >= 0 ? vulkan : vulkan_setting;
+    fps60_setting = fps60 >= 0 ? fps60 : fps60_setting;
     opt.link = link >= 0 ? link : opt.link;
     if (link_server != NULL) {
         snprintf(opt.link_server, sizeof(opt.link_server), "%s", link_server);

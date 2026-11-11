@@ -35,16 +35,37 @@
 char *tall3d_tile_getenv(const char *name);
 #define getenv tall3d_tile_getenv
 
-#include "gpu3d.c"
+/* gpu3d.c with two places marked (port/CMakeLists.txt makes the copy): where a polygon is
+ * given, and where one is kept in the list. The first copy takes note of them for the scene
+ * it hands out; the others do nothing there. */
+#if TILE == 0
+static void T(polygon_given)(void);
+static void T(polygon_kept)(int index);
+#define PORT_POLYGON_GIVEN() T(polygon_given)()
+#define PORT_POLYGON_KEPT(index) T(polygon_kept)(index)
+#else
+#define PORT_POLYGON_GIVEN() ((void) 0)
+#define PORT_POLYGON_KEPT(index) ((void) 0)
+#endif
+
+#include "gpu3d_marked.c"
 
 /* Before the main engine asks for the drawing of a swap: this engine's list for it, complete
  * (the swap's own sort flag set as its vblank will set it), or -1 without a swap pending. */
+#if TILE == 0
+static int scene_given[GPU3D_LISTS]; /* the polygons given for each list so far */
+#endif
+
 static int T(prepare)(void)
 {
     if (!ge.swap_pending) {
         return -1;
     }
     lists[geometry_list].manual_sort = (int) ge.flush_attr & 1;
+#if TILE == 0
+    /* the list after this one starts empty at the swap: so do the polygons given for it */
+    scene_given[(geometry_list + 1) % GPU3D_LISTS] = 0;
+#endif
     return geometry_list;
 }
 
@@ -54,6 +75,55 @@ static int T(prepare)(void)
 #include "scene.h"
 
 #define SCENE_TEXTURES 256
+
+/* The polygons as the game gives them (scene.h, SceneRaw), for each list being filled or
+ * waiting to be handed out, and for each polygon kept in a list the one it was made of. The
+ * game gives at most a few thousand in a frame; beyond the room there is, they are not noted
+ * (their polygons then stay where a scene has them). */
+#define RAWS 6144
+static SceneRaw scene_raws[GPU3D_LISTS][RAWS];
+static int32_t scene_raw_of[GPU3D_LISTS][POLYGON_RAM];
+
+static void T(polygon_given)(void)
+{
+    int at = scene_given[geometry_list]++;
+    if (at >= RAWS) {
+        return;
+    }
+    SceneRaw *raw = &scene_raws[geometry_list][at];
+    int n = (ge.primitive & 1) ? 4 : 3;
+    /* what does not move: the attributes without the alpha (which fades), the texture, and
+       the texture coordinates */
+    uint32_t h = 2166136261u;
+    uint32_t words[4] = {ge.polyattr & ~(31u << 16), ge.texparam, ge.pltt, (uint32_t) n};
+    for (int i = 0; i < 4; i++) {
+        h = (h ^ words[i]) * 16777619u;
+    }
+    raw->count = (uint32_t) n;
+    raw->kind = h;
+    for (int i = 0; i < n; i++) {
+        const GVertex *v = &ge.in[i];
+        SceneVertex *o = &raw->v[i];
+        for (int c = 0; c < 4; c++) {
+            o->pos[c] = (float) v->pos[c] / 4096.0f;
+        }
+        for (int c = 0; c < 3; c++) {
+            int32_t c5 = v->col[c] >> 12, c9 = c5 ? (c5 << 4) + 0xf : 0; /* as the engine keeps it */
+            o->color[c] = (float) ((c9 >> 3) & 0x3f) / 63.0f;
+        }
+        o->st[0] = (float) v->tex[0] / 16.0f;
+        o->st[1] = (float) v->tex[1] / 16.0f;
+        h = (h ^ (uint16_t) v->tex[0]) * 16777619u;
+        h = (h ^ (uint16_t) v->tex[1]) * 16777619u;
+    }
+    raw->sig = h;
+}
+
+static void T(polygon_kept)(int index)
+{
+    int at = scene_given[geometry_list] - 1;
+    scene_raw_of[geometry_list][index] = at < RAWS ? at : -1;
+}
 
 static ScenePolygon scene_polygons[POLYGON_RAM];
 static SceneVertex scene_vertices[POLYGON_RAM * MAX_POLY_VERTICES];
@@ -204,6 +274,7 @@ static void T(scene)(int list_index, Scene *scene)
         q->facing = p->facing;
         q->shadow_mask = p->shadow_mask;
         q->shadow = p->shadow;
+        q->raw = scene_raw_of[list_index][p - list->poly];
         q->texture = -1;
         if ((rr.disp3dcnt & 1) && ((p->texparam >> 26) & 7) != 0) {
             int at = texture_decoded(p->texparam, p->pltt);
@@ -236,6 +307,8 @@ static void T(scene)(int list_index, Scene *scene)
     scene->vertex_count = vertices;
     scene->textures = scene_textures;
     scene->texture_count = textures;
+    scene->raws = scene_raws[list_index];
+    scene->raw_count = scene_given[list_index] < RAWS ? scene_given[list_index] : RAWS;
 }
 #define SCENE_OF T(scene)
 #else

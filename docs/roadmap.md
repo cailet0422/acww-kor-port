@@ -76,9 +76,10 @@ What the port does now and the order the rest goes in. The facts about the decom
    device can: the 3D scene handed out of the engine as polygons and drawn by the GPU at
    the window's own size (or a part of it), four samples a pixel, by the DS's rules; the 2D
    layers mixed with it and the buttons drawn over; on its own thread, with what the
-   software engines would draw unseen left out. The software rasteriser stays the reference
-   and the way without Vulkan. To do: a setting for samples; the DS features Wild World's
-   scenes have not needed.
+   software engines would draw unseen left out. Sixty frames: scenes made between the
+   game's twenty or thirty a second, at the game's own speed (a setting, on). The software
+   rasteriser stays the reference and the way without Vulkan. To do: sixty frames looked at
+   on a phone; a setting for samples; the DS features Wild World's scenes have not needed.
 5. **Playing together.**
    - port players with each other ([multiplayer.md](multiplayer.md)): done as far as it
      could be checked here. The decomp's simulated local wireless is carried over the network

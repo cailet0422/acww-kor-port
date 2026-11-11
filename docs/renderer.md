@@ -92,6 +92,46 @@ setting is turned off, and the settings screen says why. Nothing else turns it o
    before, so it is not done on the emulation's thread: that one says what there is to draw
    and goes on. A GPU slower than the game leaves frames out; nothing queues up.
 
+## Sixty frames
+
+The game draws its 3D scene twenty or thirty times a second (in town, a new scene every
+third frame of the DS's sixty), so each scene is on the screen for two or three frames. With
+"sixty frames" on (`fps60`, on by default, a switch on the settings screen that works at
+once), the frames between show scenes made between the game's (`port/src/scene_tween.c`):
+
+- the copy of the engine that hands the scenes out also notes every polygon as the game
+  gives it, before clipping and before hidden faces are left out (`gpu3d_tile.c`; two
+  places of the decomp's `gpu3d.c` are marked for it as it is built);
+- a polygon of the new scene is found in the scene before by what does not move (its
+  attributes, its texture and texture coordinates) and, among those alike, by being
+  nearest. Its corners are put a third, two thirds (or half) of the way from where they
+  were to where they are, in clip coordinates, and the renderer clips them where they lie;
+- water's texture flows: its polygons have other texture coordinates in every scene. They
+  are found without them, and the texture is put on its way as well (unless it started
+  again from the other end);
+- one that is not found, or that would have moved farther than things move in a frame of
+  the game (a cut to another view, another object of the same shape), stays where the new
+  scene has it.
+
+When a scene comes two to four frames after the last, the frames from then on show the way
+to it, and the scene itself as the next is due: the 3D picture is a frame or two (17 to
+33 ms) later than without, and moves sixty times a second. The game itself runs as it does:
+nothing of it is sped up, and its 2D layers come as they are. On a walk through the town
+and along the sea, 1 475 862 of 1 482 261 polygons (99.6 in 100) were found and moved,
+42 656 of them water.
+
+With the scene moving in every frame, each frame has to reach the window once and in its
+turn. A frame through Vulkan is therefore drawn as its picture is finished (by the drawing
+thread's word), not at the emulation's: at the emulation's, a picture finished a moment
+late was left out and the one before it shown twice, which nobody saw while a scene stood
+for three frames. `--window-shot N --window-shots COUNT` saves consecutive frames of the
+window: with sixty frames off, a run through the town changes about 40 000 of the window's
+pixels in every third frame and a few hundred in the others; with it on, 25 000 to 36 000
+in every frame.
+
+`acww-scene-vk SCENE W H OUT SAMPLES EARLIER T` draws the scene made the part T of the way
+from one dumped scene to the next.
+
 ## What is left out while the GPU draws
 
 What the software engines make for the same frame is not all needed then (`tall3d_lean`,

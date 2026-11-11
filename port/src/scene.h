@@ -16,6 +16,15 @@ typedef struct SceneVertex {
     float st[2];    /* texture coordinates in texels */
 } SceneVertex;
 
+/* A polygon as the game gave it, before the engine clipped it or left it out (a hidden face,
+ * all of it outside the view): what a scene between two frames is made of (scene_tween.h). */
+typedef struct SceneRaw {
+    uint32_t sig;     /* of what does not move: its attributes, texture and texture coordinates */
+    uint32_t kind;    /* the same without the texture coordinates (which move on water) */
+    uint32_t count;   /* 3 or 4 */
+    SceneVertex v[4];
+} SceneRaw;
+
 typedef struct ScenePolygon {
     uint32_t first, count;        /* its vertices: a convex polygon */
     uint32_t attr, texparam, pltt; /* POLYGON_ATTR, TEXIMAGE_PARAM, PLTT_BASE as the DS has them */
@@ -24,6 +33,7 @@ typedef struct ScenePolygon {
     uint8_t wbuffer;              /* depth is w, not z */
     uint8_t facing;               /* a front face */
     uint8_t shadow_mask, shadow;  /* a shadow volume's mask, and the shadow drawn where it marked */
+    int32_t raw;                  /* the polygon it was made of, into the scene's raws, or -1 */
 } ScenePolygon;
 
 typedef struct SceneTexture {
@@ -51,6 +61,11 @@ typedef struct Scene {
     int vertex_count;
     const SceneTexture *textures;
     int texture_count;
+    const SceneRaw *raws;    /* every polygon given in the frame, in the order given */
+    int raw_count;
+    /* a kept scene's (scene_file.h): how many hold it, and the scene whose textures it uses */
+    int *holders;
+    struct Scene *lender;
 } Scene;
 
 /* Who takes the scenes: called on the scene engine's thread for each frame, with a scene that

@@ -75,6 +75,19 @@ port_replace(text "    const uint64_t step = 1082278220ull; /* 2^(1/768) in 2.30
     }
 ")
 port_write("${MADE}/sequencer.c" "${text}")
+# gpu3d.c with two places marked, for the copies of the engine (src/gpu3d_tile.c): where a
+# polygon is given and where one is kept. The game's own engine is built from the decomp's
+# file as it is.
+file(READ "${RUNTIME}/gpu3d.c" text)
+port_replace(text "    count_polygons++;
+" "    count_polygons++;
+    PORT_POLYGON_GIVEN(); /* (the port) */
+")
+port_replace(text "    p->command = capture_count.commands;
+" "    p->command = capture_count.commands;
+    PORT_POLYGON_KEPT(index); /* (the port) */
+")
+port_write("${MADE}/gpu3d_marked.c" "${text}")
 if(NOT DECOMP_HOST)
     set(BASED "${CMAKE_CURRENT_BINARY_DIR}/based")
     file(READ "${RUNTIME}/memory.h" text)
@@ -133,7 +146,7 @@ foreach(n RANGE 0 17)
     list(APPEND ENGINE_COPIES gpu3d_tile${n})
 endforeach()
 foreach(copy ${ENGINE_COPIES})
-    target_include_directories(${copy} PRIVATE "${RUNTIME}" src)
+    target_include_directories(${copy} PRIVATE "${RUNTIME}" src "${MADE}")
     target_compile_options(${copy} PRIVATE -std=c11 -O2 -fwrapv -fno-strict-aliasing -w ${RUNTIME_INCLUDES})
     target_compile_definitions(${copy} PRIVATE _DEFAULT_SOURCE)
     target_sources(acww_runtime PRIVATE $<TARGET_OBJECTS:${copy}>)
@@ -228,7 +241,7 @@ endif()
 # Vulkan device. Built where the Vulkan headers are; the library is found when it runs.
 find_path(VULKAN_HEADERS vulkan/vulkan.h)
 if(VULKAN_HEADERS AND NOT ANDROID)
-    add_executable(acww-scene-vk tools/scene_vk.c src/vk_scene.c src/scene_file.c)
+    add_executable(acww-scene-vk tools/scene_vk.c src/vk_scene.c src/scene_file.c src/scene_tween.c)
     target_include_directories(acww-scene-vk PRIVATE src "${VULKAN_HEADERS}")
     target_compile_options(acww-scene-vk PRIVATE -std=c11 -Wall -Wextra)
     target_compile_definitions(acww-scene-vk PRIVATE _DEFAULT_SOURCE)
@@ -237,7 +250,7 @@ endif()
 
 # run.c is built through run_port.c, which adds the port's hooks into the game's code behind
 # the run's own (src/game_hooks.h)
-set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/scene_file.c src/vk_scene.c
+set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/scene_file.c src/scene_tween.c src/vk_scene.c
     src/vk_present.c src/netlink.c src/relay.c src/wifi_port.c src/run_port.c src/sound_sdl.c src/ds_audio_port.c
     src/wm_port.c src/arm7_port.c src/cores.c)
 set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c src/wm_port.c src/arm7_port.c

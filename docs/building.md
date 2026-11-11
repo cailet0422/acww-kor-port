@@ -87,6 +87,7 @@ how to run it for ARM under qemu-user.
 | `port/src/touch.c` | the touch buttons and the screens' layout |
 | `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_tile.c` | the tall view and the larger picture: copies of the decomp's 3D engine (docs/tall-view.md, docs/renderer.md) |
 | `port/src/mix2d.c`, `gpu2d_main.c` | a larger 3D picture mixed with the 2D layers: the decomp's 2D engine composing each line three more times |
+| `port/src/scene_tween.c` | sixty frames: the scenes made between the game's twenty or thirty a second (docs/renderer.md) |
 | `port/src/scene.h`, `vk_scene.c`, `vk_present.c`, `port/shaders/` | the Vulkan renderer: the scene out of the engine, drawn by a GPU, and the window (docs/renderer.md); `vk_shaders.h` is the shaders compiled (`port/tools/make_shaders.sh`) |
 | `port/src/sound_sdl.c`, `ds_audio_port.c`, `pitch_table.c` | sound: the decomp's `sound.c` with an SDL audio device, its mixer with the DS's data fetching and output rate, and the BIOS's pitch table for its sequencer (docs/sound.md) |
 | `port/src/game_hooks.c`, `run_port.c` | hooks into the game's code: drawing above the screen, Mr. Resetti |
