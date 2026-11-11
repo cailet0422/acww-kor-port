@@ -52,7 +52,9 @@
 static struct {
     char data[PATH_SIZE], rom[PATH_SIZE], save[PATH_SIZE], modules_dir[PATH_SIZE], manifest[PATH_SIZE];
     const char *rtc, *input;
-    int read_only, scale, unpaced, linear, overlay, tall;
+    int read_only, scale, unpaced, linear, overlay, tall, full_touch;
+    int width, height;   /* the window's starting size (--size), else by --scale */
+    uint32_t window_shot; /* the frame whose window is saved as a PNG (--window-shot) */
     uint32_t stop_frame; /* 0: none */
     uint32_t shots[8];   /* frames to save as PNGs (--shot) */
     int shot_count;
@@ -74,6 +76,10 @@ static void usage(void)
             "  --fast          no pacing: as fast as this machine runs it (as with Tab held)\n"
             "  --smooth        scale the screens with linear filtering instead of whole pixels\n"
             "  --touch         draw the touch buttons even without a touch screen\n"
+            "  --full-touch    start without the touch buttons (the stylus alone); the mark at the\n"
+            "                  corner, or Back on Android, turns them on and off, and it is remembered\n"
+            "  --size WxH      the window's starting size in pixels\n"
+            "  --window-shot N save the window as it is drawn at frame N as a PNG in DATA\n"
             "  --two-screens   the DS's two pictures as they are, without the 3D scene continued\n"
             "                  onto the upper screen\n"
             "  --shot N        save the screens of frame N as a PNG in DATA (may be given 8 times)\n",
@@ -250,6 +256,42 @@ static void at_exit(void)
     save_flush("at exit");
 }
 
+/* Settings ---------------------------------------------------------------------------------- */
+
+/* What the player chose while playing, kept in DATA/settings.txt as "name=value" lines. */
+static void settings_path(char *out, size_t size)
+{
+    snprintf(out, size, "%s/settings.txt", opt.data);
+}
+
+static void settings_load(void)
+{
+    char path[PATH_SIZE + 16], line[128];
+    settings_path(path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (f == NULL) {
+        return;
+    }
+    while (fgets(line, sizeof(line), f) != NULL) {
+        int v;
+        if (sscanf(line, "full_touch=%d", &v) == 1) {
+            opt.full_touch = v != 0;
+        }
+    }
+    fclose(f);
+}
+
+static void settings_save(void)
+{
+    char path[PATH_SIZE + 16];
+    settings_path(path, sizeof(path));
+    FILE *f = fopen(path, "w");
+    if (f != NULL) {
+        fprintf(f, "full_touch=%d\n", opt.full_touch);
+        fclose(f);
+    }
+}
+
 /* The window -------------------------------------------------------------------------------- */
 
 static int open_window(void)
@@ -267,7 +309,8 @@ static int open_window(void)
     flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 #endif
     window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                              FRONT_SCREEN_W * opt.scale, 2 * FRONT_SCREEN_H * opt.scale, flags);
+                              opt.width > 0 ? opt.width : FRONT_SCREEN_W * opt.scale,
+                              opt.height > 0 ? opt.height : 2 * FRONT_SCREEN_H * opt.scale, flags);
     renderer = window != NULL ? SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED) : NULL;
     if (renderer == NULL && window != NULL) {
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
@@ -288,7 +331,54 @@ static void update_layout(void)
     int w, h;
     SDL_GetRendererOutputSize(renderer, &w, &h);
     int touch = opt.overlay || SDL_GetNumTouchDevices() > 0;
-    layout = layout_compute(w, h, touch);
+    layout = layout_compute(w, h, touch, opt.full_touch);
+}
+
+/* The picture enlarged for the window. A phone's screen is rarely a whole multiple of the
+ * DS's, and neither way of scaling by a fraction looks right: the nearest pixel makes them
+ * uneven, a linear filter blurs them. So, unless --smooth asks for the plain linear filter,
+ * the picture is first enlarged by a whole number with its pixels kept square (into `sharp`),
+ * and that is taken to the window's size with the linear filter, which then only softens the
+ * pixels' edges. */
+static SDL_Texture *sharp;
+static int sharp_factor;
+
+static SDL_Texture *enlarged(const SDL_Rect *to)
+{
+    int factor = (to->w + FRONT_SCREEN_W - 1) / FRONT_SCREEN_W;
+    factor = factor < 1 ? 1 : factor > 4 ? 4 : factor;
+    if (opt.linear || to->w == FRONT_SCREEN_W * factor || !SDL_RenderTargetSupported(renderer)) {
+        return screens; /* linear was asked for, or the size is a whole multiple: as it is */
+    }
+    if (sharp == NULL || sharp_factor != factor) {
+        if (sharp != NULL) {
+            SDL_DestroyTexture(sharp);
+        }
+        sharp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_TARGET, FRONT_SCREEN_W * factor,
+                                  2 * FRONT_SCREEN_H * factor);
+        sharp_factor = factor;
+        if (sharp == NULL) {
+            return screens;
+        }
+        SDL_SetTextureScaleMode(sharp, SDL_ScaleModeLinear);
+    }
+    SDL_SetRenderTarget(renderer, sharp);
+    SDL_RenderCopy(renderer, screens, NULL, NULL);
+    SDL_SetRenderTarget(renderer, NULL);
+    return sharp;
+}
+
+static void window_shot(void)
+{
+    int w, h;
+    SDL_GetRendererOutputSize(renderer, &w, &h);
+    uint32_t *pixels = malloc((size_t) w * (size_t) h * 4);
+    char path[PATH_SIZE + 64];
+    snprintf(path, sizeof(path), "%s/window-%05u.png", opt.data, frame_now);
+    if (pixels != NULL && SDL_RenderReadPixels(renderer, NULL, SDL_PIXELFORMAT_RGB888, pixels, w * 4) == 0) {
+        png_write(path, pixels, w, h);
+    }
+    free(pixels);
 }
 
 static void draw(void)
@@ -302,12 +392,14 @@ static void draw(void)
     update_layout();
     SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
     SDL_RenderClear(renderer);
-    SDL_Rect src_top = {0, 0, FRONT_SCREEN_W, FRONT_SCREEN_H};
-    SDL_Rect src_bottom = {0, FRONT_SCREEN_H, FRONT_SCREEN_W, FRONT_SCREEN_H};
-    SDL_RenderCopy(renderer, screens, &src_top, &layout.top);
-    SDL_RenderCopy(renderer, screens, &src_bottom, &layout.bottom);
+    SDL_Rect picture = {layout.top.x, layout.top.y, layout.top.w, layout.top.h + layout.bottom.h};
+    SDL_Texture *from = enlarged(&picture);
+    SDL_RenderCopy(renderer, from, NULL, &picture);
     if (layout.touch) {
         touch_draw(renderer, &layout, keys_held_keyboard | keys_held_pad | touch_keys());
+    }
+    if (opt.window_shot != 0 && opt.window_shot == frame_now) {
+        window_shot();
     }
     SDL_RenderPresent(renderer);
 }
@@ -355,6 +447,12 @@ static void pen_set(int down, int x, int y)
         pen_x = x;
         pen_y = y;
     }
+}
+
+static void toggle_buttons(void)
+{
+    opt.full_touch = !opt.full_touch;
+    settings_save();
 }
 
 static uint32_t key_of(SDL_Keycode k)
@@ -460,6 +558,8 @@ static void handle(const SDL_Event *e)
         case SDL_KEYDOWN:
             if (e->key.keysym.sym == SDLK_TAB) {
                 fast_keyboard = 1;
+            } else if (e->key.keysym.sym == SDLK_AC_BACK && !e->key.repeat) {
+                toggle_buttons(); /* Android's Back */
             } else if (e->key.keysym.sym == SDLK_F12 && !e->key.repeat) {
                 screenshot();
             } else {
@@ -518,6 +618,9 @@ static void handle(const SDL_Event *e)
                                                  : e->type == SDL_FINGERUP ? TOUCH_UP
                                                                            : TOUCH_MOVE,
                                         (int64_t) e->tfinger.fingerId, x, y);
+            if (pen.toggle) {
+                toggle_buttons();
+            }
             if (pen.changed) {
                 int px = 0, py = 0;
                 if (pen.down) {
@@ -709,7 +812,11 @@ static void on_frame(uint32_t frame)
             _exit(0);
         }
     }
-    draw();
+    /* fast forward: the window every tenth frame is enough, and the drawing would be the
+       slowest part of it */
+    if (!(fast_keyboard || opt.unpaced) || frame % 10 == 0 || frame == opt.window_shot) {
+        draw();
+    }
     pace();
 }
 
@@ -748,6 +855,7 @@ int main(int argc, char **argv)
     opt.tall = 1;
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
+    int full_touch = -1; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         int more = i + 1 < argc;
@@ -759,6 +867,12 @@ int main(int argc, char **argv)
             opt.linear = 1;
         } else if (strcmp(a, "--touch") == 0) {
             opt.overlay = 1;
+        } else if (strcmp(a, "--full-touch") == 0) {
+            full_touch = 1;
+        } else if (strcmp(a, "--size") == 0 && more) {
+            sscanf(argv[++i], "%dx%d", &opt.width, &opt.height);
+        } else if (strcmp(a, "--window-shot") == 0 && more) {
+            opt.window_shot = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--two-screens") == 0) {
             opt.tall = 0;
         } else if (strcmp(a, "--shot") == 0 && more && opt.shot_count < 8) {
@@ -786,6 +900,10 @@ int main(int argc, char **argv)
     }
     mkdir(opt.data, 0700);
     log_open();
+    settings_load();
+    if (full_touch >= 0) {
+        opt.full_touch = full_touch;
+    }
     SDL_Log("acww-kor-port %s, %d-bit", PORT_VERSION, (int) (8 * sizeof(void *)));
     snprintf(opt.rom, sizeof(opt.rom), "%s", rom != NULL ? rom : "");
     if (rom == NULL) {

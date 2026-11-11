@@ -42,10 +42,20 @@ What the port does now and the order the rest goes in. The facts about the decom
 1. **64-bit phones.** Done in 0.2.0, as far as it can be checked without a phone. Next: run it
    on real phones, measure the speed, fix what breaks.
 2. **A phone's way of playing.**
-   - portrait first, and a full-touch mode: the game played with the stylus alone, no buttons drawn;
-   - the two screens as one picture: done for the 3D scene ([tall-view.md](tall-view.md)); what
-     the game leaves out above its own screen is still to be widened;
-   - every screen shape (tall phones, tablets, foldables, cutouts);
+   - portrait first: done. The picture takes the window's whole width, the buttons the room
+     below it, or lie over its lower part where there is none (tablets, foldables);
+   - a full-touch mode, the game played with the stylus alone and no buttons drawn: done. The
+     mark with three dots, or Back on Android, turns the buttons on and off, and the choice
+     is kept;
+   - the two screens as one picture: done for the 3D scene ([tall-view.md](tall-view.md));
+   - **widening what the game draws above its own screen.** The game leaves out terrain and
+     objects that are off the lower screen, so the upper part of the tall view lacks whatever
+     lies wholly above it. To do: find in the decomp where the game decides what to send (the
+     rows of the town's ground it draws, and its tests of an object against the screen), and
+     widen those upwards while the tall view is on, by hooks in the interpreter at those
+     functions, without touching what the game simulates. Each widening is checked against
+     the recordings: the lower screen's frames must stay the decomp's;
+   - cutouts and rounded corners on real phones: to be checked on devices;
    - autosave, and Mr. Resetti on or off: both need the game's own code found in the decomp
      (the save routine, and the check that sends Resetti after a reset).
 3. **Sound.** An SDL audio device for the decomp's mixer (`runtime/sound.h`, `runtime/ds_audio.h`).

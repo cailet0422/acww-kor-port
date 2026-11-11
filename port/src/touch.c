@@ -36,38 +36,46 @@ static void add_face(Layout *l, double cx, double cy, double r)
     add_button(l, DS_KEY_Y, "Y", 1, rect(cx - d - r, cy - r, 2 * r, 2 * r));
 }
 
-Layout layout_compute(int w, int h, int touch)
+Layout layout_compute(int w, int h, int touch, int full_touch)
 {
     Layout l;
     memset(&l, 0, sizeof(l));
     l.w = w;
     l.h = h;
     l.touch = touch;
-    const double sw = FRONT_SCREEN_W, sh = FRONT_SCREEN_H;
-    int wide = w >= h;
+    l.full_touch = touch && full_touch;
+    const double sw = FRONT_SCREEN_W, sh = 2 * FRONT_SCREEN_H;
+    int wide = w * sh >= h * sw; /* wider than the picture: its height is what limits it */
+    int buttons = touch && !full_touch;
 
-    /* the room the screens may take */
-    double room_w = w, room_h = h;
-    if (touch && wide) {
-        room_w = w * 0.62;
-    } else if (touch) {
-        room_h = h * 0.6;
-    }
-    double s = room_w / sw < room_h / (2 * sh) ? room_w / sw : room_h / (2 * sh);
-    if (s >= 1.0 && !touch) {
+    double s = wide ? h / sh : w / sw;
+    if (!touch && s >= 1.0) {
         s = floor(s);
     }
-    double x = (w - sw * s) / 2, y = wide || !touch ? (h - 2 * sh * s) / 2 : 0;
-    l.top = rect(x, y, sw * s, sh * s);
-    l.bottom = rect(x, y + sh * s, sw * s, sh * s);
+    double pw = sw * s, ph = sh * s;
+    double x = (w - pw) / 2, y = (h - ph) / 2;
+    /* a tall window with buttons: the picture at the top, the buttons in what is left */
+    double below = h - ph, block = w * 0.6 < h * 0.3 ? w * 0.6 : h * 0.3;
+    if (buttons && !wide) {
+        y = 0;
+    }
+    l.top = rect(x, y, pw, ph / 2);
+    l.bottom = rect(x, y + ph / 2, pw, ph - ph / 2);
     if (!touch) {
         return l;
     }
 
-    if (wide) {
-        /* the +Control Pad, L and SELECT on the left of the screens; the face buttons, R and
+    /* the mark for the buttons: a corner of the room left over, else of the picture */
+    double mark = (w < h ? w : h) * 0.075;
+    l.toggle = rect(w - mark * 1.25, h - mark * 1.25, mark, mark);
+    if (!buttons) {
+        return l;
+    }
+
+    double side = x; /* the room on each side of the picture, in a wide window */
+    if (wide && side >= h * 0.28) {
+        /* the +Control Pad, L and SELECT on the left of the picture; the face buttons, R and
            START on the right */
-        double side = x;                       /* the width of each side */
         double unit = side < h * 0.5 ? side : h * 0.5;
         l.pad_r = (int) (unit * 0.36);
         l.pad_x = (int) (side / 2);
@@ -78,22 +86,31 @@ Layout layout_compute(int w, int h, int touch)
         add_button(&l, DS_KEY_R, "R", 0, rect(w - side / 2 - bw / 2, h * 0.08, bw, bh));
         add_button(&l, DS_KEY_SELECT, "SELECT", 0, rect(side / 2 - bw / 2, h * 0.88, bw, bh * 0.8));
         add_button(&l, DS_KEY_START, "START", 0, rect(w - side / 2 - bw / 2, h * 0.88, bw, bh * 0.8));
-    } else {
-        /* below the screens: L and R on top, the pad and the face buttons, START and SELECT
-           between them */
-        double top = l.bottom.y + l.bottom.h, rest = h - top;
-        double unit = rest < w * 0.5 ? rest : w * 0.5;
-        double bw = w * 0.22, bh = unit * 0.12;
-        add_button(&l, DS_KEY_L, "L", 0, rect(w * 0.04, top + rest * 0.05, bw, bh));
-        add_button(&l, DS_KEY_R, "R", 0, rect(w * 0.96 - bw, top + rest * 0.05, bw, bh));
-        l.pad_r = (int) (unit * 0.34);
-        l.pad_x = (int) (w * 0.26);
-        l.pad_y = (int) (top + rest * 0.55);
-        add_face(&l, w * 0.74, top + rest * 0.55, unit * 0.12);
-        double cw = w * 0.16, ch = bh * 0.8;
-        add_button(&l, DS_KEY_SELECT, "SELECT", 0, rect(w / 2 - cw - w * 0.01, top + rest * 0.88, cw, ch));
-        add_button(&l, DS_KEY_START, "START", 0, rect(w / 2 + w * 0.01, top + rest * 0.88, cw, ch));
+        l.toggle = rect(w - side / 2 - mark / 2, h * 0.3, mark, mark);
+        return l;
     }
+
+    /* a block of buttons across the window's width: in the room below the picture where it
+       fits, else over the picture's lower part. L and R on top, the pad and the face buttons
+       under them, SELECT, the mark and START between those */
+    double top = h - block, rest = block;
+    if (!wide && below >= block) {
+        top = ph + (below - block) / 2;
+    } else {
+        l.over = 1;
+    }
+    double unit = rest < w * 0.5 ? rest : w * 0.5;
+    double bw = w * 0.22, bh = unit * 0.13;
+    add_button(&l, DS_KEY_L, "L", 0, rect(w * 0.04, top + rest * 0.04, bw, bh));
+    add_button(&l, DS_KEY_R, "R", 0, rect(w * 0.96 - bw, top + rest * 0.04, bw, bh));
+    l.pad_r = (int) (unit * 0.33);
+    l.pad_x = (int) (w * 0.25);
+    l.pad_y = (int) (top + rest * 0.6);
+    add_face(&l, w * 0.75, top + rest * 0.6, unit * 0.12);
+    double cw = w * 0.15, ch = bh * 0.75;
+    add_button(&l, DS_KEY_SELECT, "SELECT", 0, rect(w / 2 - cw - mark, top + rest * 0.06, cw, ch));
+    add_button(&l, DS_KEY_START, "START", 0, rect(w / 2 + mark, top + rest * 0.06, cw, ch));
+    l.toggle = rect(w / 2 - mark / 2, top + rest * 0.06 + ch / 2 - mark / 2, mark, mark);
     return l;
 }
 
@@ -152,7 +169,7 @@ static int on_screen(const SDL_Rect *r, int x, int y)
 
 TouchPen touch_finger(const Layout *l, TouchAction action, int64_t id, int x, int y)
 {
-    TouchPen pen = {0, 0, x, y};
+    TouchPen pen = {0, 0, x, y, 0};
     int slot = -1, pen_taken = 0;
     for (int i = 0; i < MAX_FINGERS; i++) {
         if (fingers[i].used && fingers[i].id == id) {
@@ -161,6 +178,10 @@ TouchPen touch_finger(const Layout *l, TouchAction action, int64_t id, int x, in
         pen_taken |= fingers[i].used && fingers[i].pen;
     }
     if (action == TOUCH_DOWN) {
+        if (l->touch && on_screen(&l->toggle, x, y)) {
+            pen.toggle = 1;
+            return pen;
+        }
         if (slot < 0) {
             for (int i = 0; i < MAX_FINGERS && slot < 0; i++) {
                 if (!fingers[i].used) {
@@ -171,9 +192,11 @@ TouchPen touch_finger(const Layout *l, TouchAction action, int64_t id, int x, in
         if (slot < 0) {
             return pen;
         }
+        /* a button under the finger comes first (the buttons may lie over the picture) */
+        int on_button = !l->full_touch && keys_at(l, x, y) != 0;
         fingers[slot].used = 1;
         fingers[slot].id = id;
-        fingers[slot].pen = !pen_taken && on_screen(&l->bottom, x, y);
+        fingers[slot].pen = !on_button && !pen_taken && on_screen(&l->bottom, x, y);
         fingers[slot].keys = 0;
     }
     if (slot < 0) {
@@ -183,7 +206,7 @@ TouchPen touch_finger(const Layout *l, TouchAction action, int64_t id, int x, in
         pen.changed = 1;
         pen.down = action != TOUCH_UP;
     } else {
-        uint32_t keys = action == TOUCH_UP ? 0 : keys_at(l, x, y);
+        uint32_t keys = action == TOUCH_UP || l->full_touch ? 0 : keys_at(l, x, y);
         taps |= keys & ~fingers[slot].keys;
         fingers[slot].keys = keys;
     }
@@ -269,14 +292,34 @@ static void fill_circle(SDL_Renderer *r, int cx, int cy, int radius, SDL_Color c
     SDL_RenderGeometry(r, NULL, v, SEGMENTS + 1, idx, SEGMENTS * 3);
 }
 
+/* White, more of it while pressed. Over the picture a button is a dark patch instead, with
+ * its letter in white, so that it shows on the game's light panels as on its dark scenes. */
+static int shade_over;
+
 static SDL_Color shade(int pressed)
 {
     SDL_Color c = {255, 255, 255, (Uint8) (pressed ? 150 : 55)};
+    if (shade_over && !pressed) {
+        c = (SDL_Color){0, 0, 0, 70};
+    }
     return c;
 }
 
 void touch_draw(SDL_Renderer *r, const Layout *l, uint32_t held)
 {
+    shade_over = l->over;
+    /* the mark for the buttons: three dots, fainter when it is all that is drawn */
+    if (l->touch && l->toggle.w > 0) {
+        int d = l->toggle.w / 7, cy = l->toggle.y + l->toggle.h / 2;
+        SDL_Color c = {255, 255, 255, (Uint8) (l->full_touch ? 90 : 140)}, under = {0, 0, 0, 60};
+        fill_circle(r, l->toggle.x + l->toggle.w / 2, cy, l->toggle.w * 2 / 3, under);
+        for (int i = -1; i <= 1; i++) {
+            fill_circle(r, l->toggle.x + l->toggle.w / 2 + i * (l->toggle.w / 3), cy, d > 2 ? d : 2, c);
+        }
+    }
+    if (l->full_touch) {
+        return;
+    }
     /* the +Control Pad: a disc, and an arm for each direction */
     if (l->pad_r > 0) {
         fill_circle(r, l->pad_x, l->pad_y, l->pad_r, shade(0));
@@ -313,7 +356,7 @@ void touch_draw(SDL_Renderer *r, const Layout *l, uint32_t held)
         if (!b->round && (int) strlen(b->label) * 6 * px > b->r.w * 9 / 10) {
             px = b->r.w * 9 / 10 / ((int) strlen(b->label) * 6);
         }
-        SDL_SetRenderDrawColor(r, 255, 255, 255, 220);
+        SDL_SetRenderDrawColor(r, 255, 255, 255, (Uint8) (l->over ? 190 : 220));
         draw_text(r, b->label, cx, cy, px);
     }
 }

@@ -1,6 +1,7 @@
-/* Buttons drawn on a touch screen, and the fingers on them. A finger that lands on the lower
- * screen is the stylus until it lifts (one at a time); any other finger presses the buttons
- * under it, and can slide from one to the next. */
+/* Buttons drawn on a touch screen, and the fingers on them. A finger that lands on a button
+ * presses it, and can slide from one button to the next; one that lands on the lower screen
+ * instead is the stylus until it lifts (one at a time). In the full-touch mode there are no
+ * buttons, only the stylus. */
 #ifndef ACWW_PORT_TOUCH_H
 #define ACWW_PORT_TOUCH_H
 
@@ -15,6 +16,7 @@ typedef struct TouchPen {
     int changed; /* the stylus moved, landed or lifted */
     int down;
     int x, y;    /* in window pixels (front_sdl.c maps them onto the lower screen) */
+    int toggle;  /* the finger landed on the mark that turns the buttons on and off */
 } TouchPen;
 
 TouchPen touch_finger(const Layout *l, TouchAction action, int64_t finger, int x, int y);

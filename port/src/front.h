@@ -36,16 +36,21 @@ typedef struct Button {
 /* Where everything goes in a window of w x h pixels. */
 typedef struct Layout {
     int w, h;
-    SDL_Rect top, bottom; /* the DS's screens */
-    int touch;            /* the buttons are drawn and touched */
+    SDL_Rect top, bottom; /* the DS's screens, the upper right above the lower: one picture */
+    int touch;            /* a touch screen: the buttons can be drawn and touched */
+    int full_touch;       /* the stylus alone: no buttons drawn */
+    int over;             /* the buttons lie over the picture (no room beside or below it) */
     int pad_x, pad_y, pad_r; /* the +Control Pad: its centre and reach */
     Button buttons[LAYOUT_BUTTONS];
     int button_count;
+    SDL_Rect toggle;      /* the small mark that turns the buttons on and off */
 } Layout;
 
-/* The screens stacked, as large as they fit: whole multiples of their size where that is
- * at least 1, so pixels stay square. With `touch`, room is left for the buttons: beside the
- * screens in a wide window, below them in a tall one. */
-Layout layout_compute(int w, int h, int touch);
+/* The picture (both screens, one above the other) as large as the window lets it be: across
+ * the whole width of a tall window, the whole height of a wide one; without a touch screen,
+ * in whole multiples of the DS's size where that is at least 1. With `touch` and not
+ * `full_touch`, the buttons go where there is room, below the picture in a tall window and
+ * beside it in a wide one, and over its lower part where there is none. */
+Layout layout_compute(int w, int h, int touch, int full_touch);
 
 #endif
