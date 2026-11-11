@@ -15,6 +15,17 @@ def decompRoot = project.findProperty('decompRoot') ?: file("${rootDir}/../decom
 def portVersion = file("${portDir}/VERSION").text.trim()
 def portVersionCode = portVersion.tokenize('.').collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] }
 
+// The app's strings are Korean by default (res/values) with English beside them (values-en).
+// Android picks a language from the phone's whole list of languages, and a list of Korean,
+// then English, would be answered with English if Korean existed only as the default: so
+// the Korean strings are also given under their own name (values-ko), as a copy made here.
+def koreanRes = file("${buildDir}/generated/korean-res")
+tasks.register('koreanStrings', Copy) {
+    from 'src/main/res/values/strings.xml'
+    into "${koreanRes}/values-ko"
+}
+preBuild.dependsOn 'koreanStrings'
+
 if (!file("${sdlDir}/android-project/app/src/main/java/org/libsdl/app/SDLActivity.java").exists()) {
     throw new GradleException("SDL2 source not found at ${sdlDir}: clone it there or pass -PsdlDir (docs/building.md)")
 }
@@ -54,6 +65,7 @@ android {
     sourceSets {
         main {
             java.srcDirs += "${sdlDir}/android-project/app/src/main/java"
+            res.srcDirs += koreanRes
         }
     }
 
