@@ -5,6 +5,8 @@
     <string name="rom_pick">ROM 파일 선택</string>
     <string name="rom_copying">복사하는 중…</string>
     <string name="rom_copy_failed">파일을 복사하지 못했습니다. 다시 시도해 주세요.</string>
+    <string name="exit_ask">게임을 종료할까요?\n게임 안에서 저장하지 않은 진행은 사라집니다.</string>
+    <string name="exit_yes">종료</string>
     <string name="settings_title">설정</string>
     <string name="settings_resetti">저장하지 않고 끄면 도루묵씨 등장</string>
     <string name="settings_full_touch">풀터치 모드 (터치 버튼 숨김)</string>

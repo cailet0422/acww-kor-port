@@ -82,12 +82,12 @@ if(NOT DECOMP_HOST)
 endif()
 
 # decomp/tools/run.py's SOURCES, the Reference form (native_none.c: no Native functions);
-# run.c is built with each program, with or without its own main (RUN_FRONT_END), and so is
-# sound.c: as it is for the headless program, with an SDL device for the front end
-# (src/sound_sdl.c)
+# run.c is built with each program, with or without its own main (RUN_FRONT_END), and so are
+# sound.c and ds_audio.c: as they are for the headless program; for the front end with an SDL
+# device (src/sound_sdl.c) and with the DS's data fetching and output rate (src/ds_audio_port.c)
 set(RUNTIME_SOURCES
     arm.c memory.c io.c bios.c arm7.c boot.c frame.c input.c native_run.c
-    native_aggregate.c render.c drive.c sequencer.c ds_audio.c wm.c wifi.c driven.c native_none.c)
+    native_aggregate.c render.c drive.c sequencer.c wm.c wifi.c driven.c native_none.c)
 if(DECOMP_HOST)
     list(APPEND RUNTIME_SOURCES native_os.c host.c native_tramp.S)
 else()
@@ -147,8 +147,8 @@ target_compile_definitions(acww_rom PRIVATE _DEFAULT_SOURCE)
 # The decomp's headless program (run.c's own main) and the ROM split on their own, for the
 # tests: port/tests/test_frames.py plays the decomp's recordings and compares the frames.
 if(NOT ANDROID)
-    add_executable(acww-run tools/run_headless.c "${RUNTIME}/sound.c")
-    set_source_files_properties("${RUNTIME}/sound.c" PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
+    add_executable(acww-run tools/run_headless.c "${RUNTIME}/sound.c" "${RUNTIME}/ds_audio.c")
+    set_source_files_properties("${RUNTIME}/sound.c" "${RUNTIME}/ds_audio.c" PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
     target_include_directories(acww-run PRIVATE "${RUNTIME}")
     target_compile_options(acww-run PRIVATE ${RUN_C_OPTIONS})
     target_compile_definitions(acww-run PRIVATE _DEFAULT_SOURCE)
@@ -186,8 +186,8 @@ endif()
 
 # run.c is built through run_port.c, which adds the port's hooks into the game's code behind
 # the run's own (src/game_hooks.h)
-set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/run_port.c src/sound_sdl.c)
-set_source_files_properties(src/run_port.c src/sound_sdl.c PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
+set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/run_port.c src/sound_sdl.c src/ds_audio_port.c)
+set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
 if(ANDROID)
     # SDLActivity loads libSDL2.so and libmain.so, and calls SDL_main
     add_library(main SHARED ${FRONT_SOURCES})

@@ -89,11 +89,15 @@ static void usage(void)
             "  --resolution N  the 3D scene drawn at N times the DS's size, 1 to 3 (\"resolution=N\" in\n"
             "                  DATA/settings.txt keeps it); each step up costs several times the drawing\n"
             "  --no-sound      without sound (\"sound=0\" in DATA/settings.txt keeps it)\n"
+            "  --audio-wav FILE  also write the mixer's sound to a new WAV file (the decomp's\n"
+            "                  RUN_AUDIO_WAV). Its header says 32768 Hz; the frames are the DS's\n"
+            "                  32728.5 a second\n"
             "  --touch         draw the touch buttons even without a touch screen\n"
             "  --resetti, --no-resetti  whether Mr. Resetti comes after a play that ended without a\n"
             "                  save (default: he does not; \"resetti=1\" in DATA/settings.txt keeps it)\n"
             "  --full-touch    start without the touch buttons (the stylus alone); the mark at the\n"
-            "                  corner, or Back on Android, turns them on and off, and it is remembered\n"
+            "                  corner (the settings screen on Android) turns them on and off, and\n"
+            "                  it is remembered\n"
             "  --size WxH      the window's starting size in pixels\n"
             "  --touch-script FILE  play fingers from a file (\"FRAME down|move|up FINGER X Y\")\n"
             "  --window-shot N save the window as it is drawn at frame N as a PNG in DATA\n"
@@ -367,22 +371,50 @@ static void status_write(void)
 /* The settings screen, where the platform has one: on Android, SettingsActivity, asked for
  * through MainActivity.openSettings. It writes the settings' file, which is read again when
  * the game comes back to the front (settings_apply). */
-static void open_settings(void)
-{
-    status_write();
 #ifdef __ANDROID__
+/* A method of MainActivity's without arguments or result. */
+static int activity_call(const char *method)
+{
+    int called = 0;
     JNIEnv *env = SDL_AndroidGetJNIEnv();
     jobject activity = SDL_AndroidGetActivity();
     if (env != NULL && activity != NULL) {
         jclass cls = (*env)->GetObjectClass(env, activity);
-        jmethodID open = (*env)->GetMethodID(env, cls, "openSettings", "()V");
-        if (open != NULL) {
-            (*env)->CallVoidMethod(env, activity, open);
+        jmethodID id = (*env)->GetMethodID(env, cls, method, "()V");
+        if (id != NULL) {
+            (*env)->CallVoidMethod(env, activity, id);
+            called = 1;
+        } else {
+            (*env)->ExceptionClear(env);
         }
         (*env)->DeleteLocalRef(env, cls);
         (*env)->DeleteLocalRef(env, activity);
     }
+    return called;
+}
 #endif
+
+static void open_settings(void)
+{
+    status_write();
+#ifdef __ANDROID__
+    activity_call("openSettings");
+#endif
+}
+
+/* Android's Back: the platform asks whether to leave the game (MainActivity.confirmExit,
+ * which sends SDL_QUIT on a yes). Elsewhere, where the key hardly exists, the buttons go off
+ * or on as the mark does. */
+static void toggle_buttons(void);
+
+static void back_pressed(void)
+{
+#ifdef __ANDROID__
+    if (activity_call("confirmExit")) {
+        return;
+    }
+#endif
+    toggle_buttons();
 }
 
 /* The settings screen's request to arrange the buttons, if there is one. */
@@ -763,11 +795,11 @@ static void handle(const SDL_Event *e)
             if (e->key.keysym.sym == SDLK_TAB) {
                 fast_keyboard = 1;
             } else if (e->key.keysym.sym == SDLK_AC_BACK && !e->key.repeat) {
-                /* Android's Back: out of the arranging of the buttons, else buttons off or on */
+                /* Android's Back: out of the arranging of the buttons, else "leave the game?" */
                 if (touch_arrange_close()) {
                     settings_save();
                 } else {
-                    toggle_buttons();
+                    back_pressed();
                 }
             } else if (e->key.keysym.sym == SDLK_F12 && !e->key.repeat) {
                 screenshot();
@@ -1124,6 +1156,7 @@ int main(int argc, char **argv)
     opt.resolution = 1;
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
+    const char *audio_wav = NULL;
     int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0, resolution = 0; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -1140,6 +1173,8 @@ int main(int argc, char **argv)
             resolution = atoi(argv[++i]);
         } else if (strcmp(a, "--no-sound") == 0) {
             no_sound = 1;
+        } else if (strcmp(a, "--audio-wav") == 0 && more) {
+            audio_wav = argv[++i];
         } else if (strcmp(a, "--resetti") == 0) {
             resetti = 1;
         } else if (strcmp(a, "--no-resetti") == 0) {
@@ -1239,7 +1274,7 @@ int main(int argc, char **argv)
     set_env("RUN_INPUT", opt.input);
     /* sound: the runtime's sequencer and mixer, heard through sound_sdl.c */
     set_env("RUN_AUDIO", opt.sound ? "1" : "");
-    set_env("RUN_AUDIO_WAV", "");
+    set_env("RUN_AUDIO_WAV", audio_wav != NULL ? audio_wav : "");
     if (opt.sound) {
         set_env("RUN_SEQUENCER", "1");
     }

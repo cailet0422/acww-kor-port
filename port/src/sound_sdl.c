@@ -1,15 +1,15 @@
 /* Sound out of an SDL audio device.
  *
  * The decomp's runtime renders the DS's sound itself (the sequencer and the mixer,
- * decomp/runtime/sequencer.c and ds_audio.c: 32768 Hz, signed 16-bit stereo), and
- * decomp/runtime/sound.c hands the samples to a device in blocks of 512 frames: Windows's
- * waveOut, in the build with a window, and nothing elsewhere. That code is used here as it
+ * decomp/runtime/sequencer.c and ds_audio.c: signed 16-bit stereo, here at the DS's own
+ * 32728.5 Hz, ds_audio_port.c), and decomp/runtime/sound.c hands the samples to a device in
+ * blocks of 512 frames: Windows's waveOut, in the build with a window, and nothing elsewhere. That code is used here as it
  * is. This file includes it with its device part switched on, and gives it the handful of
  * waveOut names it uses, made of an SDL device instead.
  *
  * Between the two is a ring of the DS's frames and a rate converter of the port's own:
  *
- *   - the device is asked for 48000 Hz and may answer with its own rate. 32768 Hz is not a
+ *   - the device is asked for 48000 Hz and may answer with its own rate. The DS's is not a
  *     rate audio hardware has, and a phone's audio system is not relied on to play one
  *     in tune;
  *   - the device's clock and the emulation's are two clocks, and the emulation's sound comes
@@ -31,7 +31,8 @@
 
 typedef struct PortWaveOut {
     SDL_AudioDeviceID device;
-    int rate, device_rate, failed;
+    double rate;        /* the mixer's frames a second */
+    int device_rate, failed;
 } *HWAVEOUT;
 typedef char *LPSTR;
 typedef unsigned MMRESULT;
@@ -60,7 +61,7 @@ typedef struct WAVEFORMATEX {
 
 /* The rate converter: a windowed sinc, TAPS of the DS's frames wide, tabled at PHASES
  * positions between two frames and interpolated between those */
-#define TAPS 16
+#define TAPS 32
 #define PHASES 256
 #define RATE_SWAY 0.005            /* how far the rate may follow the ring's level */
 #define RATE_SWAY_AT 512           /* frames off its level at which it has gone that far */
@@ -88,10 +89,10 @@ static double bessel_i0(double x)
 }
 
 /* The kernel for a device at `rate`: a low-pass at the lower of the two rates' halves. */
-static void kernel_make(int source, int rate)
+static void kernel_make(double source, int rate)
 {
     const double pi = 3.14159265358979323846, beta = 7.0;
-    double cut = rate < source ? (double) rate / source : 1.0;
+    double cut = rate < source ? rate / source : 1.0;
     for (int p = 0; p <= PHASES; p++) {
         double sum = 0.0, h[TAPS];
         for (int k = 0; k < TAPS; k++) {
@@ -130,7 +131,7 @@ static void SDLCALL device_pull(void *user, Uint8 *stream, int bytes)
     }
     double sway = RATE_SWAY * (level - RING_TARGET) / RATE_SWAY_AT;
     sway = sway > RATE_SWAY ? RATE_SWAY : sway < -RATE_SWAY ? -RATE_SWAY : sway;
-    double step = (double) out->rate / out->device_rate * (1.0 + sway);
+    double step = out->rate / out->device_rate * (1.0 + sway);
     /* frames to keep ahead while the gain comes down before the ring is empty */
     int low = TAPS + 2 + (int) step + (int) (step / FADE) + 1;
     for (int i = 0; i < frames; i++) {
@@ -177,7 +178,10 @@ static MMRESULT waveOutOpen(HWAVEOUT *out, int which, const WAVEFORMATEX *format
     (void) c;
     wave_out.device = 0;
     wave_out.failed = 0;
-    wave_out.rate = (int) format->nSamplesPerSec;
+    /* not what sound.c says (the decomp's 32768): this build's mixer has the DS's grid, a
+       frame every 1024 cycles of the bus clock (ds_audio_port.c) */
+    (void) format;
+    wave_out.rate = 33513982.0 / 1024.0;
     *out = &wave_out;
     return MMSYSERR_NOERROR;
 }
@@ -213,7 +217,7 @@ static MMRESULT waveOutWrite(HWAVEOUT out, WAVEHDR *block, unsigned size)
             ring_empty();
             gaps = skips = 0;
             snprintf(device_text, sizeof(device_text), "%s %d Hz", SDL_GetCurrentAudioDriver(), have.freq);
-            fprintf(stderr, "sound: SDL audio (%s), the device at %d Hz in buffers of %d frames, the DS's %d Hz converted\n",
+            fprintf(stderr, "sound: SDL audio (%s), the device at %d Hz in buffers of %d frames, the DS's %.1f Hz converted\n",
                     SDL_GetCurrentAudioDriver(), have.freq, have.samples, out->rate);
             SDL_PauseAudioDevice(out->device, 0);
         }

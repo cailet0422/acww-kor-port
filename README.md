@@ -18,9 +18,9 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.6.1).** The game runs in the port, and its frames are the decomp's own bit
-> for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)). It has **not yet
-> been run on a real phone**. See the [roadmap](docs/roadmap.md).
+> **Early days (0.6.3).** The game runs in the port, on phones too, and its frames are the
+> decomp's own bit for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)).
+> Sound: [docs/sound.md](docs/sound.md). See the [roadmap](docs/roadmap.md).
 
 ## What it is
 
@@ -79,7 +79,7 @@ system is in English): sound, Mr. Resetti, the full-touch mode (no buttons, the 
 the tall view, the arranging of the buttons, the save exported and imported, another ROM.
 Arranging, drag each button where you want it, the picture included, make the one you touched
 last smaller or larger with − and +, put all back with RESET, and close with the tick; tall
-and wide screens keep their own arrangements. Back turns the buttons off and on. (On a touch
+and wide screens keep their own arrangements. Back asks whether to leave the game. (On a touch
 screen elsewhere, a tap on the mark turns the buttons off and on and a hold opens the
 arranging.) Tab held
 runs as fast as the machine can; F12 saves the screens as a PNG next to the save.

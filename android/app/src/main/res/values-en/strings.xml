@@ -5,6 +5,8 @@
     <string name="rom_pick">Choose ROM file</string>
     <string name="rom_copying">Copying…</string>
     <string name="rom_copy_failed">The file could not be copied. Try again.</string>
+    <string name="exit_ask">Leave the game?\nProgress not saved in the game is lost.</string>
+    <string name="exit_yes">Leave</string>
     <string name="settings_title">Settings</string>
     <string name="settings_resetti">Mr. Resetti comes after quitting without saving</string>
     <string name="settings_full_touch">Full-touch mode (touch buttons hidden)</string>

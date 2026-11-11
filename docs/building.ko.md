@@ -84,7 +84,7 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/src/touch.c` | 터치 버튼과 화면 배치 |
 | `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_tile.c` | 이어진 화면과 더 큰 그림: 디컴프 3D 엔진의 복제본(docs/tall-view.ko.md, docs/renderer.ko.md) |
 | `port/src/mix2d.c`, `gpu2d_main.c`, `gpu2d_probe.c` | 큰 3D 그림을 2D 레이어와 섞기: 디컴프 2D 엔진의 복제본 |
-| `port/src/sound_sdl.c` | 소리: 디컴프의 `sound.c`에 SDL 오디오 장치를 붙이고, 장치의 재생 속도로 변환해 장치 시계에 맞춤 |
+| `port/src/sound_sdl.c`, `ds_audio_port.c` | 소리: 디컴프의 `sound.c`에 SDL 오디오 장치를 붙이고, 믹서에 DS의 미리 읽기와 출력 주기를 더함(docs/sound.ko.md) |
 | `port/src/game_hooks.c`, `run_port.c` | 게임 코드에 거는 훅: 화면 위쪽 그리기, 도루묵씨 |
 | `port/src/rom_prep.c` | ROM 확인과 모듈 분리 |
 | `port/src/memory_based.c` | DS 메모리를 시스템이 내주는 위치에 두고 기준 주소를 더함(docs/64bit.ko.md) |
