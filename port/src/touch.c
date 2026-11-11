@@ -532,6 +532,71 @@ static const struct {
     {'X', {0x11, 0x11, 0x0a, 0x04, 0x0a, 0x11, 0x11}}, {'Y', {0x11, 0x11, 0x0a, 0x04, 0x04, 0x04, 0x04}},
 };
 
+/* Where the drawing goes: to an SDL renderer, or, without one, into a list of triangles for a
+ * renderer of the port's own (touch_draw_list). Everything below draws through these. */
+static TouchVertex *list;
+static int list_count, list_room;
+static SDL_Color list_color;
+
+static void list_corner(float x, float y, SDL_Color c)
+{
+    if (list != NULL && list_count < list_room) {
+        list[list_count++] = (TouchVertex){x, y, c.r, c.g, c.b, c.a};
+    }
+}
+
+static int paint_color(SDL_Renderer *r, Uint8 red, Uint8 green, Uint8 blue, Uint8 alpha)
+{
+    if (r != NULL) {
+        return SDL_SetRenderDrawColor(r, red, green, blue, alpha);
+    }
+    list_color = (SDL_Color){red, green, blue, alpha};
+    return 0;
+}
+
+static int paint_rect(SDL_Renderer *r, const SDL_Rect *b)
+{
+    if (r != NULL) {
+        return SDL_RenderFillRect(r, b);
+    }
+    float x0 = (float) b->x, y0 = (float) b->y, x1 = (float) (b->x + b->w), y1 = (float) (b->y + b->h);
+    list_corner(x0, y0, list_color);
+    list_corner(x1, y0, list_color);
+    list_corner(x1, y1, list_color);
+    list_corner(x0, y0, list_color);
+    list_corner(x1, y1, list_color);
+    list_corner(x0, y1, list_color);
+    return 0;
+}
+
+static int paint_rects(SDL_Renderer *r, const SDL_Rect *rects, int count)
+{
+    if (r != NULL) {
+        return SDL_RenderFillRects(r, rects, count);
+    }
+    for (int i = 0; i < count; i++) {
+        paint_rect(r, &rects[i]);
+    }
+    return 0;
+}
+
+static int paint_geometry(SDL_Renderer *r, SDL_Texture *texture, const SDL_Vertex *v, int vertices, const int *indices, int count)
+{
+    if (r != NULL) {
+        return SDL_RenderGeometry(r, texture, v, vertices, indices, count);
+    }
+    for (int i = 0; i < count; i++) {
+        const SDL_Vertex *corner = &v[indices[i]];
+        list_corner(corner->position.x, corner->position.y, corner->color);
+    }
+    return 0;
+}
+
+#define SDL_SetRenderDrawColor paint_color
+#define SDL_RenderFillRect paint_rect
+#define SDL_RenderFillRects paint_rects
+#define SDL_RenderGeometry paint_geometry
+
 static void draw_text(SDL_Renderer *r, const char *text, int cx, int cy, int px)
 {
     if (px < 1) {
@@ -713,4 +778,14 @@ void touch_draw(SDL_Renderer *r, const Layout *l, uint32_t held)
     if (arrange.on) {
         draw_arranging(r, l);
     }
+}
+
+int touch_draw_list(const Layout *l, uint32_t held, TouchVertex *out, int room)
+{
+    list = out;
+    list_count = 0;
+    list_room = room;
+    touch_draw(NULL, l, held);
+    list = NULL;
+    return list_count;
 }

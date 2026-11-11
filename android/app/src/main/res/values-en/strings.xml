@@ -19,6 +19,7 @@
     <string name="settings_back">Back to the game</string>
     <string name="settings_tall">One tall picture: the 3D scene continued onto the upper screen (takes effect at the next start)</string>
     <string name="settings_resolution">3D resolution (experimental; takes effect at the next start; each step is much heavier)</string>
+    <string name="settings_vulkan">Vulkan renderer (experimental, takes effect at the next start): the 3D scene at the screen\'s own resolution, antialiased. Used in place of the 3D resolution above; turns itself off where the device cannot do it</string>
     <string name="settings_save_title">Save data</string>
     <string name="settings_save_export">Export the save…</string>
     <string name="settings_save_import">Import a save…</string>

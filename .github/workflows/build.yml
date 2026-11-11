@@ -16,10 +16,10 @@ jobs:
       matrix:
         include:
           - arch: x86_64
-            packages: libsdl2-dev
+            packages: libsdl2-dev libvulkan-dev
             toolchain: ""
           - arch: i686
-            packages: gcc-multilib g++-multilib libsdl2-dev:i386
+            packages: gcc-multilib g++-multilib libsdl2-dev:i386 libvulkan-dev
             toolchain: linux-i686
     steps:
       - uses: actions/checkout@v4

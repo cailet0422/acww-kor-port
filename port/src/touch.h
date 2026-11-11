@@ -57,4 +57,13 @@ void touch_settings_write(FILE *f);
 
 void touch_draw(SDL_Renderer *r, const Layout *l, uint32_t held);
 
+/* The same drawing as triangles, for a renderer that is not SDL's (vk_present.h): corners in
+ * window pixels with their colours, three to a triangle, to be blended in order. Returns how
+ * many corners were written (`room` at most). */
+typedef struct TouchVertex {
+    float x, y;
+    uint8_t r, g, b, a;
+} TouchVertex;
+int touch_draw_list(const Layout *l, uint32_t held, TouchVertex *out, int room);
+
 #endif

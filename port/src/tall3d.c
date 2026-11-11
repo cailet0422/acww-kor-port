@@ -485,6 +485,20 @@ const uint32_t *gpu3d_line_rgb6(int y)
     return gpu3d_main_line_rgb6(y);
 }
 
+int tall3d_scene_state(int *over_upper, uint32_t *brightness)
+{
+    /* as tall3d_picture below: whether the lower screen shows the 3D layer at all, and
+       whether a window hides it outside (then the upper part is left out) */
+    uint32_t dispcnt = io_view_reg(0x000);
+    int shown = !(io_view_reg(0x304) & 0x8000) && ((dispcnt >> 16) & 3) == 1 && !(dispcnt & 0x80) && (dispcnt & 0x008) &&
+                (dispcnt & 0x100);
+    uint32_t windows = io_view_reg(0x048);
+    int windowed = (dispcnt & 0xe000) && !((windows >> 16) & 1);
+    *over_upper = tall && !windowed;
+    *brightness = io_view_reg(0x06c);
+    return shown && scene_sink != NULL;
+}
+
 int tall3d_picture(const uint32_t **upper, const uint32_t **lower, int *stride, uint32_t *brightness)
 {
     /* The lower screen shows the 3D picture when the main engine is the lower screen's

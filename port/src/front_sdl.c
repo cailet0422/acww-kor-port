@@ -20,6 +20,7 @@
  * game controllers, and on a touch screen buttons drawn around the screens (touch.c).
  */
 #include <SDL.h>
+#include <SDL_vulkan.h>
 #ifdef __ANDROID__
 #include <jni.h>
 #endif
@@ -49,6 +50,7 @@
 #include "tall3d.h"
 #include "tall3d_engine.h"
 #include "touch.h"
+#include "vk_present.h"
 
 /* The DS's frame: 263 lines of 2130 bus cycles at 33,513,982 Hz, about 59.8261 a second. */
 #define DS_CYCLES_PER_FRAME (263.0 * 2130.0)
@@ -66,6 +68,7 @@ static struct {
     int resolution;      /* the 3D scene at this many times the DS's size (1 to 3) */
     int resetti;         /* Mr. Resetti comes after a play without a save, as on a DS */
     int autosave;        /* the port saves the town by itself (autosave.c) */
+    int vulkan;          /* the window drawn through Vulkan, the scene at its size (vk_present.h) */
     int no_above;        /* the game's own choice of what to draw above its screen (--no-above) */
     const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
     int width, height;   /* the window's starting size (--size), else by --scale */
@@ -92,6 +95,9 @@ static void usage(void)
             "  --smooth        scale the screens with linear filtering instead of whole pixels\n"
             "  --resolution N  the 3D scene drawn at N times the DS's size, 1 to 3 (\"resolution=N\" in\n"
             "                  DATA/settings.txt keeps it); each step up costs several times the drawing\n"
+            "  --vulkan, --no-vulkan  the window drawn through Vulkan, the 3D scene at the window's\n"
+            "                  own size and multisampled (experimental; \"vulkan=1\" in\n"
+            "                  DATA/settings.txt keeps it)\n"
             "  --no-sound      without sound (\"sound=0\" in DATA/settings.txt keeps it)\n"
             "  --audio-wav FILE  also write the mixer's sound to a new WAV file (the decomp's\n"
             "                  RUN_AUDIO_WAV). Its header says 32768 Hz; the frames are the DS's\n"
@@ -416,6 +422,8 @@ static void settings_path(char *out, size_t size)
 static int tall_setting = 1;
 /* the 3D scene's size, likewise taking effect at the next start */
 static int resolution_setting = 1;
+/* the Vulkan renderer, likewise from the next start (the engines are set up for it then) */
+static int vulkan_setting;
 /* "arrange=1": the settings screen asks for the arranging of the buttons (settings_apply) */
 static int arrange_asked;
 
@@ -435,6 +443,8 @@ static void settings_load(void)
             opt.resetti = v != 0;
         } else if (sscanf(line, "autosave=%d", &v) == 1) {
             opt.autosave = v != 0;
+        } else if (sscanf(line, "vulkan=%d", &v) == 1) {
+            vulkan_setting = v != 0;
         } else if (sscanf(line, "tall=%d", &v) == 1) {
             tall_setting = v != 0;
         } else if (sscanf(line, "sound=%d", &v) == 1) {
@@ -459,12 +469,105 @@ static void settings_save(void)
         fprintf(f, "full_touch=%d\n", opt.full_touch);
         fprintf(f, "resetti=%d\n", opt.resetti);
         fprintf(f, "autosave=%d\n", opt.autosave);
+        fprintf(f, "vulkan=%d\n", vulkan_setting);
         fprintf(f, "tall=%d\n", tall_setting);
         fprintf(f, "sound=%d\n", opt.sound);
         fprintf(f, "resolution=%d\n", resolution_setting);
         touch_settings_write(f);
         fclose(f);
     }
+}
+
+/* The window through Vulkan (vk_present.h, docs/renderer.md) --------------------------------- */
+
+static VkPresenter *presenter;
+static VkApi vk_api;
+static VkInstance vk_instance;
+static int vk_headless; /* no window to show on (the checks, under SDL's dummy driver): a surface of no display */
+
+/* The size of what is drawn on, in pixels. */
+static void output_size(int *w, int *h)
+{
+    if (presenter == NULL) {
+        SDL_GetRendererOutputSize(renderer, w, h);
+    } else if (vk_headless) {
+        SDL_GetWindowSize(window, w, h);
+    } else {
+        SDL_Vulkan_GetDrawableSize(window, w, h);
+    }
+}
+
+static VkSurfaceKHR vulkan_surface(PFN_vkGetInstanceProcAddr get)
+{
+    VkSurfaceKHR surface = VK_NULL_HANDLE;
+    if (!vk_headless) {
+        return SDL_Vulkan_CreateSurface(window, vk_instance, &surface) ? surface : VK_NULL_HANDLE;
+    }
+    PFN_vkCreateHeadlessSurfaceEXT create = (PFN_vkCreateHeadlessSurfaceEXT) get(vk_instance, "vkCreateHeadlessSurfaceEXT");
+    VkHeadlessSurfaceCreateInfoEXT info = {.sType = VK_STRUCTURE_TYPE_HEADLESS_SURFACE_CREATE_INFO_EXT};
+    return create != NULL && create(vk_instance, &info, NULL, &surface) == VK_SUCCESS ? surface : VK_NULL_HANDLE;
+}
+
+/* The instance, the surface and the presenter for the window that is open. 0, or -1 with a
+ * word in the log on what there was not. */
+static int vulkan_open(int headless)
+{
+    PFN_vkGetInstanceProcAddr get = NULL;
+    const char *names[16];
+    unsigned count = 16;
+    vk_headless = headless;
+    if (headless) {
+        void *library = SDL_LoadObject("libvulkan.so.1");
+        get = library != NULL ? (PFN_vkGetInstanceProcAddr) SDL_LoadFunction(library, "vkGetInstanceProcAddr") : NULL;
+        names[0] = VK_KHR_SURFACE_EXTENSION_NAME;
+        names[1] = VK_EXT_HEADLESS_SURFACE_EXTENSION_NAME;
+        count = 2;
+    } else {
+        get = (PFN_vkGetInstanceProcAddr) SDL_Vulkan_GetVkGetInstanceProcAddr();
+        if (!SDL_Vulkan_GetInstanceExtensions(window, &count, names)) {
+            SDL_Log("play: vulkan: no surface extensions (%s)", SDL_GetError());
+            return -1;
+        }
+    }
+    if (get == NULL || vk_api_load_global(&vk_api, get) != 0) {
+        SDL_Log("play: vulkan: no Vulkan library");
+        return -1;
+    }
+    VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
+                             .pApplicationName = "acww-kor-port",
+                             .apiVersion = VK_API_VERSION_1_0};
+    VkInstanceCreateInfo info = {.sType = VK_STRUCTURE_TYPE_INSTANCE_CREATE_INFO,
+                                 .pApplicationInfo = &app,
+                                 .enabledExtensionCount = count,
+                                 .ppEnabledExtensionNames = names};
+    if (vk_api.CreateInstance(&info, NULL, &vk_instance) != VK_SUCCESS) {
+        SDL_Log("play: vulkan: no instance");
+        return -1;
+    }
+    if (vk_api_load(&vk_api, get, vk_instance) != 0 || vk_api_load_wsi(&vk_api, get, vk_instance) != 0) {
+        SDL_Log("play: vulkan: the library lacks functions");
+        return -1;
+    }
+    VkSurfaceKHR surface = vulkan_surface(get);
+    if (surface == VK_NULL_HANDLE) {
+        SDL_Log("play: vulkan: no surface (%s)", SDL_GetError());
+        return -1;
+    }
+    int w, h;
+    if (headless) {
+        SDL_GetWindowSize(window, &w, &h);
+    } else {
+        SDL_Vulkan_GetDrawableSize(window, &w, &h);
+    }
+    const char *why = NULL;
+    presenter = vk_present_create(&vk_api, vk_instance, surface, w, h, 4, &why);
+    if (presenter == NULL) {
+        vk_api.DestroySurfaceKHR(vk_instance, surface, NULL);
+        SDL_Log("play: vulkan: %s", why);
+        return -1;
+    }
+    SDL_Log("play: the window through Vulkan on %s%s", vk_present_device(presenter), headless ? " (no display)" : "");
+    return 0;
 }
 
 /* How the run is going, in DATA/status.txt for the settings screen to show: the speed over
@@ -486,7 +589,8 @@ static void status_write(void)
         fprintf(f, "%.1f fps (DS %.1f), busy %.0f%%\n", status_fps, DS_BUS_HZ / DS_CYCLES_PER_FRAME, status_busy * 100.0);
     }
     fprintf(f, "sound: %s\n", opt.sound ? sound : "off");
-    fprintf(f, "picture: %dx, %s\n", picture_scale, opt.tall ? "tall" : "two screens");
+    fprintf(f, "picture: %dx, %s, %s\n", picture_scale, opt.tall ? "tall" : "two screens",
+            presenter != NULL ? vk_present_device(presenter) : "no Vulkan");
     fclose(f);
 }
 
@@ -608,9 +712,33 @@ static int open_window(void)
 #ifdef __ANDROID__
     flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
 #endif
-    window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
-                              opt.width > 0 ? opt.width : FRONT_SCREEN_W * opt.scale,
-                              opt.height > 0 ? opt.height : 2 * FRONT_SCREEN_H * opt.scale, flags);
+    const int width = opt.width > 0 ? opt.width : FRONT_SCREEN_W * opt.scale;
+    const int height = opt.height > 0 ? opt.height : 2 * FRONT_SCREEN_H * opt.scale;
+    if (opt.vulkan) {
+        /* through Vulkan: a window made for it (first: Android has one window, no more).
+           Where the video driver has no Vulkan (SDL's dummy one, in the checks), a plain
+           window and a surface without a display. Without either, the window as ever, and
+           the setting off for the next start (the engines are set up for Vulkan in this one:
+           it shows the two screens plainly) */
+        window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height,
+                                  flags | SDL_WINDOW_VULKAN);
+        if (window != NULL && vulkan_open(0) == 0) {
+            return 0;
+        }
+        if (window != NULL) {
+            SDL_DestroyWindow(window);
+        }
+        window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags);
+        const char *driver = SDL_GetCurrentVideoDriver();
+        if (window != NULL && driver != NULL && strcmp(driver, "dummy") == 0 && vulkan_open(1) == 0) {
+            return 0;
+        }
+        SDL_Log("play: no Vulkan here: the window without it, and \"vulkan=0\" kept for the next start");
+        vulkan_setting = 0;
+        settings_save();
+    } else {
+        window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags);
+    }
     if (window == NULL || open_renderer() != 0) {
         tell("acww-kor", SDL_GetError());
         return -1;
@@ -621,7 +749,7 @@ static int open_window(void)
 static void update_layout(void)
 {
     int w, h;
-    SDL_GetRendererOutputSize(renderer, &w, &h);
+    output_size(&w, &h);
     int touch = opt.overlay || SDL_GetNumTouchDevices() > 0;
     layout = layout_compute(w, h, touch, opt.full_touch);
 }
@@ -661,7 +789,7 @@ static SDL_Texture *enlarged(const SDL_Rect *to)
 static void window_shot(void)
 {
     int w, h;
-    SDL_GetRendererOutputSize(renderer, &w, &h);
+    output_size(&w, &h);
     uint32_t *pixels = malloc((size_t) w * (size_t) h * 4);
     char path[PATH_SIZE + 64];
     snprintf(path, sizeof(path), "%s/window-%05u.png", opt.data, frame_now);
@@ -671,8 +799,96 @@ static void window_shot(void)
     free(pixels);
 }
 
+/* What a frame through Vulkan is made of, as the drawing thread left it (on_frame_output):
+ * the two screens, the 2D engine's three answers, and the scene of the 3D layer. */
+#define DS_PIXELS (FRONT_SCREEN_W * FRONT_SCREEN_H)
+static struct {
+    uint32_t upper[DS_PIXELS], lower[DS_PIXELS], black[DS_PIXELS], white[DS_PIXELS], none[DS_PIXELS];
+    int answers;      /* the three answers are there */
+    int scene_shown;  /* the lower screen shows the 3D layer */
+    int over_upper;
+    uint32_t brightness;
+} packet;
+static Scene *scene_latest;  /* from the scene engine, not yet a frame's (scene_lock) */
+static Scene *scene_current; /* the scene of the frame shown (shown_lock) */
+static SDL_mutex *scene_lock;
+
+static void draw_vulkan(void)
+{
+    static uint32_t upper[DS_PIXELS], lower[DS_PIXELS], black[DS_PIXELS], white[DS_PIXELS], none[DS_PIXELS];
+    static TouchVertex ui[32768];
+    PresentFrame f;
+    memset(&f, 0, sizeof(f));
+    SDL_LockMutex(shown_lock);
+    memcpy(upper, packet.upper, sizeof(upper));
+    memcpy(lower, packet.lower, sizeof(lower));
+    if (packet.answers) {
+        memcpy(black, packet.black, sizeof(black));
+        memcpy(white, packet.white, sizeof(white));
+        memcpy(none, packet.none, sizeof(none));
+        f.black = black;
+        f.white = white;
+        f.none = none;
+    }
+    /* the scene is this function's until it is given back below */
+    Scene *scene = scene_current;
+    scene_current = NULL;
+    f.scene = packet.scene_shown && packet.answers ? scene : NULL;
+    f.scene_over_upper = packet.over_upper;
+    f.brightness = packet.brightness;
+    drawn_frame = shown_frame;
+    SDL_UnlockMutex(shown_lock);
+
+    update_layout();
+    int w, h;
+    output_size(&w, &h);
+    f.upper = upper;
+    f.lower = lower;
+    f.top[0] = layout.top.x, f.top[1] = layout.top.y, f.top[2] = layout.top.w, f.top[3] = layout.top.h;
+    f.bottom[0] = layout.bottom.x, f.bottom[1] = layout.bottom.y, f.bottom[2] = layout.bottom.w, f.bottom[3] = layout.bottom.h;
+    if (layout.touch) {
+        f.ui = (const PresentVertex *) ui;
+        f.ui_count = touch_draw_list(&layout, keys_held_keyboard | keys_held_pad | touch_keys(), ui, (int) (sizeof(ui) / sizeof(ui[0])));
+    }
+    f.capture = opt.window_shot != 0 && opt.window_shot == frame_now;
+    int got = vk_present_frame(presenter, &f, w, h);
+    if (got == 1 && !vk_headless) {
+        /* the surface went with the app's leaving the screen: a new one, once there is a window again */
+        VkSurfaceKHR surface = VK_NULL_HANDLE;
+        if (SDL_Vulkan_CreateSurface(window, vk_instance, &surface)) {
+            vk_present_surface(presenter, surface, w, h);
+        }
+    }
+    if (f.capture) {
+        int pw, ph, bgra;
+        const uint8_t *pixels = vk_present_pixels(presenter, &pw, &ph, &bgra);
+        uint32_t *rgb = pixels != NULL ? malloc((size_t) pw * (size_t) ph * 4) : NULL;
+        if (rgb != NULL) {
+            char path[PATH_SIZE + 64];
+            for (int i = 0; i < pw * ph; i++) {
+                const uint8_t *q = pixels + 4 * i;
+                rgb[i] = bgra ? (uint32_t) q[2] << 16 | (uint32_t) q[1] << 8 | q[0] : (uint32_t) q[0] << 16 | (uint32_t) q[1] << 8 | q[2];
+            }
+            snprintf(path, sizeof(path), "%s/window-%05u.png", opt.data, frame_now);
+            png_write(path, rgb, pw, ph);
+            free(rgb);
+        }
+    }
+    SDL_LockMutex(shown_lock);
+    if (scene_current == NULL) {
+        scene_current = scene; /* still the scene of the frame shown */
+    } else {
+        scene_free(scene);
+    }
+    SDL_UnlockMutex(shown_lock);
+}
+
 static void draw(void)
 {
+    if (presenter != NULL) {
+        draw_vulkan();
+        return;
+    }
     if (shown_frame != drawn_frame) {
         SDL_LockMutex(shown_lock);
         SDL_UpdateTexture(screens, NULL, shown, PICTURE_W * (int) sizeof(uint32_t));
@@ -718,7 +934,7 @@ static void mouse_to_pixels(int *x, int *y)
 {
     int ww, wh, pw, ph;
     SDL_GetWindowSize(window, &ww, &wh);
-    SDL_GetRendererOutputSize(renderer, &pw, &ph);
+    output_size(&pw, &ph);
     if (ww > 0 && wh > 0) {
         *x = *x * pw / ww;
         *y = *y * ph / wh;
@@ -975,7 +1191,7 @@ static void handle(const SDL_Event *e)
         case SDL_FINGERMOTION:
         case SDL_FINGERUP: {
             int w, h;
-            SDL_GetRendererOutputSize(renderer, &w, &h);
+            output_size(&w, &h);
             x = (int) (e->tfinger.x * (float) w);
             y = (int) (e->tfinger.y * (float) h);
             finger(e->type == SDL_FINGERDOWN ? TOUCH_DOWN : e->type == SDL_FINGERUP ? TOUCH_UP : TOUCH_MOVE,
@@ -1090,17 +1306,45 @@ static void put_together(const uint32_t *upper, const uint32_t *lower)
  * option, at a larger size, tiles-N.bin: the 3D picture alone as the software tiles drew it,
  * which a renderer's picture of the same frame is compared with. */
 static int scene_dump;
-static Scene *scene_kept;
-static SDL_mutex *scene_lock;
 
+/* The scene engine's thread hands a scene over: kept until the frame it belongs to is put out. */
 static void scene_keep(const Scene *scene, void *user)
 {
     (void) user;
     Scene *copy = scene_copy(scene);
     SDL_LockMutex(scene_lock);
-    scene_free(scene_kept);
-    scene_kept = copy;
+    scene_free(scene_latest);
+    scene_latest = copy;
     SDL_UnlockMutex(scene_lock);
+}
+
+/* On the drawing thread, as a frame is put out (under shown_lock): the scene that arrived
+ * since the last one is this frame's, and what a frame through Vulkan needs is put by. */
+static void scene_frame(const uint32_t *upper, const uint32_t *lower)
+{
+    if (scene_lock == NULL) {
+        return;
+    }
+    SDL_LockMutex(scene_lock);
+    if (scene_latest != NULL) {
+        scene_free(scene_current);
+        scene_current = scene_latest;
+        scene_latest = NULL;
+    }
+    SDL_UnlockMutex(scene_lock);
+    if (!opt.vulkan) {
+        return;
+    }
+    const uint32_t *black = NULL, *white = NULL, *none = NULL;
+    memcpy(packet.upper, upper, sizeof(packet.upper));
+    memcpy(packet.lower, lower, sizeof(packet.lower));
+    packet.answers = mix2d_answers(&black, &white, &none);
+    if (packet.answers) {
+        memcpy(packet.black, black, sizeof(packet.black));
+        memcpy(packet.white, white, sizeof(packet.white));
+        memcpy(packet.none, none, sizeof(packet.none));
+    }
+    packet.scene_shown = tall3d_scene_state(&packet.over_upper, &packet.brightness);
 }
 
 static void scene_shot(uint32_t frame)
@@ -1108,11 +1352,9 @@ static void scene_shot(uint32_t frame)
     char path[PATH_SIZE + 64];
     if (scene_dump) {
         snprintf(path, sizeof(path), "%s/scene-%05u.bin", opt.data, frame);
-        SDL_LockMutex(scene_lock);
-        if (scene_kept != NULL) {
-            scene_write(path, scene_kept);
+        if (scene_current != NULL) {
+            scene_write(path, scene_current);
         }
-        SDL_UnlockMutex(scene_lock);
         return;
     }
     const uint32_t *upper = NULL, *lower = NULL;
@@ -1144,6 +1386,7 @@ static void on_frame_output(uint32_t frame, const uint32_t *upper, const uint32_
 {
     SDL_LockMutex(shown_lock);
     put_together(upper, lower);
+    scene_frame(upper, lower);
     shown_frame = frame + 1;
     if (picture_hashes != NULL) {
         uint64_t h = 1469598103934665603ull; /* FNV-1a over the pixels */
@@ -1356,7 +1599,7 @@ int main(int argc, char **argv)
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
     const char *audio_wav = NULL;
-    int autosave = -1, load_autosave = 0;
+    int autosave = -1, load_autosave = 0, vulkan = -1;
     int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0, resolution = 0; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -1401,6 +1644,10 @@ int main(int argc, char **argv)
             opt.window_shot = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--scene-dump") == 0) {
             scene_dump = 1;
+        } else if (strcmp(a, "--vulkan") == 0) {
+            vulkan = 1;
+        } else if (strcmp(a, "--no-vulkan") == 0) {
+            vulkan = 0;
         } else if (strcmp(a, "--two-screens") == 0) {
             opt.tall = 0;
             two_screens = 1;
@@ -1439,6 +1686,7 @@ int main(int argc, char **argv)
     if (autosave >= 0) {
         opt.autosave = autosave;
     }
+    opt.vulkan = vulkan >= 0 ? vulkan : vulkan_setting;
     if (!two_screens) {
         opt.tall = tall_setting;
     }
@@ -1513,13 +1761,15 @@ int main(int argc, char **argv)
     SDL_Log("      Shift or Backspace = SELECT, mouse on the lower screen = touch, Tab = fast forward, F12 = screenshot");
 
     picture_scale = opt.resolution;
-    if (scene_dump) {
+    if (scene_dump || opt.vulkan) {
+        /* the scene handed out whole, for the dump or for the GPU, in place of the tiles */
         scene_lock = SDL_CreateMutex();
+        picture_scale = 1;
         tall3d_enable_scene(opt.tall, scene_keep, NULL);
     } else {
         tall3d_enable(opt.tall, picture_scale);
     }
-    mix2d_enable(picture_scale > 1);
+    mix2d_enable(picture_scale > 1 || opt.vulkan);
     shown_lock = SDL_CreateMutex();
     counter_hz = (double) SDL_GetPerformanceFrequency();
     ticks_per_frame = counter_hz * DS_CYCLES_PER_FRAME / DS_BUS_HZ;

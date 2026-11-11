@@ -68,6 +68,7 @@ public class SettingsActivity extends Activity {
         column.addView(choice("full_touch", false, R.string.settings_full_touch));
         column.addView(choice("tall", true, R.string.settings_tall));
         column.addView(resolution());
+        column.addView(choice("vulkan", false, R.string.settings_vulkan));
         /* a request the game takes when it is back in front: the arranging opens */
         column.addView(button(R.string.settings_arrange, () -> {
             write("full_touch", false);

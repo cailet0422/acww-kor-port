@@ -44,6 +44,7 @@
 #define F_ONLY_OPAQUE 64u
 #define F_ONLY_TRANSLUCENT 128u
 #define F_W_BUFFER 256u
+#define F_DEPTH_EQUAL 512u
 
 typedef struct FrameUniforms {
     float toon[32][4];
@@ -98,7 +99,8 @@ struct VkSceneRenderer {
     VkDescriptorSet frame_set;
     Buffer vertices, uniforms, staging, readback;
     VkCommandPool commands;
-    VkCommandBuffer cmd;
+    VkCommandBuffer cmd;       /* its own, for vk_scene_draw and vk_scene_read */
+    VkCommandBuffer recording; /* where commands go now: its own, or the caller's (vk_scene_record) */
     VkFence fence;
     Texture textures[TEXTURES];
     Texture white; /* for polygons without a texture: something has to be bound */
@@ -127,6 +129,17 @@ int vk_api_load(VkApi *api, PFN_vkGetInstanceProcAddr get, VkInstance instance)
         missing |= api->name == NULL;                                \
     }
 #include "vk_functions.h"
+#undef VK_FN
+    return missing ? -1 : 0;
+}
+
+int vk_api_load_wsi(VkApi *api, PFN_vkGetInstanceProcAddr get, VkInstance instance)
+{
+    int missing = 0;
+#define VK_FN(name)                                           \
+    api->name = (PFN_vk##name) get(instance, "vk" #name);     \
+    missing |= api->name == NULL;
+#include "vk_functions_wsi.h"
 #undef VK_FN
     return missing ? -1 : 0;
 }
@@ -243,7 +256,7 @@ static void layout_change(VkSceneRenderer *r, VkImage image, VkImageLayout from,
                                     .dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED,
                                     .image = image,
                                     .subresourceRange = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 1, 0, 1}};
-    r->vk.CmdPipelineBarrier(r->cmd, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &barrier);
+    r->vk.CmdPipelineBarrier(r->recording, src_stage, dst_stage, 0, 0, NULL, 0, NULL, 1, &barrier);
 }
 
 /* The pipelines ----------------------------------------------------------------------------- */
@@ -644,7 +657,7 @@ void vk_scene_destroy(VkSceneRenderer *r)
 /* Textures ---------------------------------------------------------------------------------- */
 
 /* The texture's texels put into `t` (made anew when its size changed), from the staging
- * buffer at `offset`, where the caller has put them. Commands go into r->cmd. */
+ * buffer at `offset`, where the caller has put them. Commands go into r->recording. */
 static int texture_upload(VkSceneRenderer *r, Texture *t, int width, int height, VkDeviceSize offset)
 {
     if (t->image == VK_NULL_HANDLE || t->width != width || t->height != height) {
@@ -663,7 +676,7 @@ static int texture_upload(VkSceneRenderer *r, Texture *t, int width, int height,
     VkBufferImageCopy region = {.bufferOffset = offset,
                                 .imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
                                 .imageExtent = {(uint32_t) width, (uint32_t) height, 1}};
-    r->vk.CmdCopyBufferToImage(r->cmd, r->staging.buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
+    r->vk.CmdCopyBufferToImage(r->recording, r->staging.buffer, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, 1, &region);
     layout_change(r, t->image, VK_IMAGE_LAYOUT_TRANSFER_DST_OPTIMAL, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL,
                   VK_ACCESS_TRANSFER_WRITE_BIT, VK_ACCESS_SHADER_READ_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT,
                   VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT);
@@ -789,18 +802,14 @@ static void uniforms_fill(const Scene *scene, FrameUniforms *u)
     u->alpha_ref = (float) scene->alpha_ref;
 }
 
-int vk_scene_draw(VkSceneRenderer *r, const Scene *scene)
+int vk_scene_record(VkSceneRenderer *r, VkCommandBuffer cmd, const Scene *scene)
 {
     const VkApi *vk = &r->vk;
     static Texture *texture_of[4096];
     r->frame++;
     r->read_valid = 0;
+    r->recording = cmd;
     if (scene->texture_count > 4096) {
-        return -1;
-    }
-    VkCommandBufferBeginInfo begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
-                                      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
-    if (vk->ResetCommandBuffer(r->cmd, 0) != VK_SUCCESS || vk->BeginCommandBuffer(r->cmd, &begin) != VK_SUCCESS) {
         return -1;
     }
     if (textures_prepare(r, scene, texture_of) != 0) {
@@ -839,14 +848,14 @@ int vk_scene_draw(VkSceneRenderer *r, const Scene *scene)
                                   .renderArea = {{0, 0}, {(uint32_t) r->width, (uint32_t) r->height}},
                                   .clearValueCount = r->samples != VK_SAMPLE_COUNT_1_BIT ? 3u : 2u,
                                   .pClearValues = clears};
-    vk->CmdBeginRenderPass(r->cmd, &pass, VK_SUBPASS_CONTENTS_INLINE);
+    vk->CmdBeginRenderPass(cmd, &pass, VK_SUBPASS_CONTENTS_INLINE);
     VkViewport viewport = {0.0f, 0.0f, (float) r->width, (float) r->height, 0.0f, 1.0f};
     VkRect2D scissor = {{0, 0}, {(uint32_t) r->width, (uint32_t) r->height}};
-    vk->CmdSetViewport(r->cmd, 0, 1, &viewport);
-    vk->CmdSetScissor(r->cmd, 0, 1, &scissor);
+    vk->CmdSetViewport(cmd, 0, 1, &viewport);
+    vk->CmdSetScissor(cmd, 0, 1, &scissor);
     VkDeviceSize zero = 0;
-    vk->CmdBindVertexBuffers(r->cmd, 0, 1, &r->vertices.buffer, &zero);
-    vk->CmdBindDescriptorSets(r->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->layout, 0, 1, &r->frame_set, 0, NULL);
+    vk->CmdBindVertexBuffers(cmd, 0, 1, &r->vertices.buffer, &zero);
+    vk->CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->layout, 0, 1, &r->frame_set, 0, NULL);
 
     VkPipeline bound = VK_NULL_HANDLE;
     VkDescriptorSet bound_set = VK_NULL_HANDLE;
@@ -862,6 +871,7 @@ int vk_scene_draw(VkSceneRenderer *r, const Scene *scene)
         pc.inv_size[1] = t != NULL ? 1.0f / (float) t->height : 1.0f;
         pc.alpha = polyalpha == 0 ? 1.0f : (float) polyalpha / 31.0f; /* a wire frame's lines are solid */
         uint32_t flags = (t != NULL ? F_TEXTURED : 0) | mode << 1 | (p->wbuffer ? F_W_BUFFER : 0);
+        flags |= (p->attr & (1u << 14)) ? F_DEPTH_EQUAL : 0;
         flags |= mode == 2 && (scene->disp3dcnt & 2) ? F_HIGHLIGHT : 0;
         flags |= (p->attr & 0x8000) && (scene->disp3dcnt & 0x80) ? F_FOG : 0;
         flags |= (scene->disp3dcnt & 0x40) ? F_FOG_ALPHA_ONLY : 0;
@@ -870,7 +880,7 @@ int vk_scene_draw(VkSceneRenderer *r, const Scene *scene)
             continue;
         }
         if (set != bound_set) {
-            vk->CmdBindDescriptorSets(r->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->layout, 1, 1, &set, 0, NULL);
+            vk->CmdBindDescriptorSets(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, r->layout, 1, 1, &set, 0, NULL);
             bound_set = set;
         }
         unsigned equal = (p->attr & (1u << 14)) ? 4 : 0;
@@ -886,18 +896,27 @@ int vk_scene_draw(VkSceneRenderer *r, const Scene *scene)
                 continue;
             }
             if (pipeline != bound) {
-                vk->CmdBindPipeline(r->cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
+                vk->CmdBindPipeline(cmd, VK_PIPELINE_BIND_POINT_GRAPHICS, pipeline);
                 bound = pipeline;
             }
             pc.flags = flags | (!p->translucent ? 0 : translucent ? F_ONLY_TRANSLUCENT : F_ONLY_OPAQUE);
-            vk->CmdSetStencilReference(r->cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
+            vk->CmdSetStencilReference(cmd, VK_STENCIL_FACE_FRONT_AND_BACK,
                                        translucent ? STENCIL_TRANSLUCENT | ((p->attr >> 24) & 0x3f) : 0);
-            vk->CmdPushConstants(r->cmd, r->layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
-            vk->CmdDraw(r->cmd, count_of[i], 1, first_of[i], 0);
+            vk->CmdPushConstants(cmd, r->layout, VK_SHADER_STAGE_FRAGMENT_BIT, 0, sizeof(pc), &pc);
+            vk->CmdDraw(cmd, count_of[i], 1, first_of[i], 0);
         }
     }
-    vk->CmdEndRenderPass(r->cmd);
-    if (vk->EndCommandBuffer(r->cmd) != VK_SUCCESS) {
+    vk->CmdEndRenderPass(cmd);
+    return 0;
+}
+
+int vk_scene_draw(VkSceneRenderer *r, const Scene *scene)
+{
+    const VkApi *vk = &r->vk;
+    VkCommandBufferBeginInfo begin = {.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO,
+                                      .flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT};
+    if (vk->ResetCommandBuffer(r->cmd, 0) != VK_SUCCESS || vk->BeginCommandBuffer(r->cmd, &begin) != VK_SUCCESS ||
+        vk_scene_record(r, r->cmd, scene) != 0 || vk->EndCommandBuffer(r->cmd) != VK_SUCCESS) {
         return -1;
     }
     VkSubmitInfo submit = {.sType = VK_STRUCTURE_TYPE_SUBMIT_INFO, .commandBufferCount = 1, .pCommandBuffers = &r->cmd};
@@ -920,6 +939,7 @@ const uint8_t *vk_scene_read(VkSceneRenderer *r)
     if (vk->ResetCommandBuffer(r->cmd, 0) != VK_SUCCESS || vk->BeginCommandBuffer(r->cmd, &begin) != VK_SUCCESS) {
         return NULL;
     }
+    r->recording = r->cmd;
     layout_change(r, r->output, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL, VK_IMAGE_LAYOUT_TRANSFER_SRC_OPTIMAL, VK_ACCESS_SHADER_READ_BIT,
                   VK_ACCESS_TRANSFER_READ_BIT, VK_PIPELINE_STAGE_FRAGMENT_SHADER_BIT, VK_PIPELINE_STAGE_TRANSFER_BIT);
     VkBufferImageCopy region = {.imageSubresource = {VK_IMAGE_ASPECT_COLOR_BIT, 0, 0, 1},
@@ -940,4 +960,10 @@ const uint8_t *vk_scene_read(VkSceneRenderer *r)
 VkImageView vk_scene_view(VkSceneRenderer *r)
 {
     return r->output_view;
+}
+
+void vk_scene_size(const VkSceneRenderer *r, int *width, int *height)
+{
+    *width = r->width;
+    *height = r->height;
 }

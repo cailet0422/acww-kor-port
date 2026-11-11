@@ -26,7 +26,7 @@ layout(push_constant) uniform Polygon {
 } poly;
 
 const uint TEXTURED = 1u, MODE = 6u, HIGHLIGHT = 8u, FOG = 16u, FOG_ALPHA_ONLY = 32u;
-const uint ONLY_OPAQUE = 64u, ONLY_TRANSLUCENT = 128u, W_BUFFER = 256u;
+const uint ONLY_OPAQUE = 64u, ONLY_TRANSLUCENT = 128u, W_BUFFER = 256u, DEPTH_EQUAL = 512u;
 
 float fog_entry(int i)
 {
@@ -68,7 +68,9 @@ void main()
     float depth = gl_FragCoord.z;
     if ((poly.flags & W_BUFFER) != 0u) {
         depth = clamp(4096.0 / (gl_FragCoord.w * 16777215.0), 0.0, 1.0);
-        gl_FragDepth = depth;
+        // a polygon that passes on "equal" depth (a decal on its surface): the DS takes w
+        // within 0xff of 24 bits for equal; here it is brought that much nearer
+        gl_FragDepth = (poly.flags & DEPTH_EQUAL) != 0u ? depth - 256.0 / 16777215.0 : depth;
     }
     if ((poly.flags & FOG) != 0u) {
         float at = max(depth * 16777215.0 - frame.fog_offset, 0.0) * frame.fog_scale;

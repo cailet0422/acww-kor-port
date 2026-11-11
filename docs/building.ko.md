@@ -17,7 +17,7 @@ git submodule update --init
 Ubuntu 24.04 기준:
 
 ```sh
-sudo apt-get install build-essential cmake ninja-build libsdl2-dev
+sudo apt-get install build-essential cmake ninja-build libsdl2-dev libvulkan-dev
 cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 build/acww-kor --rom 경로/한국판.nds
@@ -84,6 +84,7 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/src/touch.c` | 터치 버튼과 화면 배치 |
 | `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_tile.c` | 이어진 화면과 더 큰 그림: 디컴프 3D 엔진의 복제본(docs/tall-view.ko.md, docs/renderer.ko.md) |
 | `port/src/mix2d.c`, `gpu2d_main.c`, `gpu2d_probe.c` | 큰 3D 그림을 2D 레이어와 섞기: 디컴프 2D 엔진의 복제본 |
+| `port/src/scene.h`, `vk_scene.c`, `vk_present.c`, `port/shaders/` | Vulkan 렌더러: 엔진에서 꺼낸 장면, GPU로 그리기, 창(docs/renderer.ko.md). `vk_shaders.h`는 컴파일된 셰이더(`port/tools/make_shaders.sh`) |
 | `port/src/sound_sdl.c`, `ds_audio_port.c` | 소리: 디컴프의 `sound.c`에 SDL 오디오 장치를 붙이고, 믹서에 DS의 미리 읽기와 출력 주기를 더함(docs/sound.ko.md) |
 | `port/src/game_hooks.c`, `run_port.c` | 게임 코드에 거는 훅: 화면 위쪽 그리기, 도루묵씨 |
 | `port/src/autosave.c` | 포트의 자체 마을 저장(docs/autosave.ko.md) |

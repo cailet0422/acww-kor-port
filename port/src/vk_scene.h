@@ -18,13 +18,16 @@
 typedef struct VkApi {
 #define VK_FN(name) PFN_vk##name name;
 #include "vk_functions.h"
+#include "vk_functions_wsi.h"
 #undef VK_FN
 } VkApi;
 
-/* The functions an instance is made with; then the rest, for the instance. 0, or -1 when
- * one is missing. */
+/* The functions an instance is made with; then the rest, for the instance; then those for a
+ * window, if the instance was made with the surface extensions. 0, or -1 when one is
+ * missing. */
 int vk_api_load_global(VkApi *api, PFN_vkGetInstanceProcAddr get);
 int vk_api_load(VkApi *api, PFN_vkGetInstanceProcAddr get, VkInstance instance);
+int vk_api_load_wsi(VkApi *api, PFN_vkGetInstanceProcAddr get, VkInstance instance);
 
 typedef struct VkSceneRenderer VkSceneRenderer;
 
@@ -35,7 +38,13 @@ VkSceneRenderer *vk_scene_create(const VkApi *api, VkPhysicalDevice physical, Vk
                                  VkQueue queue, int width, int height, int samples, const char **why);
 void vk_scene_destroy(VkSceneRenderer *r);
 
-/* Draws the scene. The picture holds, for each pixel, the 3D layer's colour multiplied by its
+/* The scene's drawing recorded into a command buffer of the caller's, who submits it. What
+ * the renderer keeps (buffers, textures) is written while recording, so the commands of the
+ * frame before must have been carried out. */
+int vk_scene_record(VkSceneRenderer *r, VkCommandBuffer cmd, const Scene *scene);
+void vk_scene_size(const VkSceneRenderer *r, int *width, int *height);
+
+/* Draws the scene, and waits for it. The picture holds, for each pixel, the 3D layer's colour multiplied by its
  * alpha, and the alpha: 0 where the scene has nothing. 0, or -1. */
 int vk_scene_draw(VkSceneRenderer *r, const Scene *scene);
 

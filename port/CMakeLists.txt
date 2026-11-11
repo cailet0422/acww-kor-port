@@ -197,8 +197,8 @@ endif()
 
 # run.c is built through run_port.c, which adds the port's hooks into the game's code behind
 # the run's own (src/game_hooks.h)
-set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/scene_file.c src/run_port.c
-    src/sound_sdl.c src/ds_audio_port.c)
+set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/scene_file.c src/vk_scene.c
+    src/vk_present.c src/run_port.c src/sound_sdl.c src/ds_audio_port.c)
 set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
 if(ANDROID)
     # SDLActivity loads libSDL2.so and libmain.so, and calls SDL_main
@@ -218,3 +218,10 @@ set_source_files_properties(src/front_sdl.c src/touch.c src/game_hooks.c src/aut
     "-std=c11;-Wall;-Wextra;${RUNTIME_INCLUDES}")
 target_compile_definitions(${FRONT} PRIVATE _DEFAULT_SOURCE PORT_VERSION="${PORT_VERSION}")
 target_link_libraries(${FRONT} PRIVATE acww_rom acww_runtime ${SDL_TARGET} m)
+# the Vulkan headers (the library itself is found when the program runs, if it is there)
+if(NOT ANDROID)
+    if(NOT VULKAN_HEADERS)
+        message(FATAL_ERROR "the Vulkan headers are needed (libvulkan-dev): vulkan/vulkan.h was not found")
+    endif()
+    target_include_directories(${FRONT} PRIVATE "${VULKAN_HEADERS}")
+endif()

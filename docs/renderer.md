@@ -1,12 +1,12 @@
 <p align="center"><b>English</b> · <a href="renderer.ko.md">한국어</a></p>
 
-# A larger 3D picture, and the GPU renderer (plan)
+# A larger 3D picture, and the GPU renderer
 
 The roadmap's item 4 is the 3D scene drawn by the GPU at the phone's own resolution, with
-antialiasing, through Vulkan. That renderer is not written yet. What there is, as of 0.6.0, is
-the scene drawn at 2 or 3 times the DS's size by the DS's own rules, which is the picture the
-GPU renderer will be checked against, and the mixing of a larger 3D picture with the game's
-2D layers, which the GPU renderer will use as it is.
+antialiasing, through Vulkan. There are two things here: the scene drawn at 2 or 3 times the
+DS's size by the DS's own rules, in software, which is the picture the GPU renderer is
+checked against, with the mixing of a larger 3D picture with the game's 2D layers; and,
+since 0.8.0, the GPU renderer itself (below), which uses that mixing as it is.
 
 ## The larger picture there is now
 
@@ -35,53 +35,60 @@ Cost, on the 4-core machine this was written on, the new-game recording unpaced:
 130 frames a second, 2x about 55 (35 before the tiles had threads). A phone will be slower.
 That is why this is not the way to a phone's resolution, only the reference for it.
 
-# The GPU renderer (plan)
+# The GPU renderer
 
-## What there is now
+`--vulkan` (`vulkan=1` in the settings, "Vulkan renderer" on Android's settings screen).
+Experimental and off by default: it has run on a software Vulkan driver, not yet on a phone.
 
-The decomp's runtime draws everything itself at the DS's size: `gpu3d.c` (the geometry engine
-and a rasteriser, 256 x 192) and `gpu2d.c` (the 2D engines, which take the 3D picture as one
-of their layers and blend it with the others line by line). The front end enlarges the
-finished picture. Enlarging cannot add detail: for sharp 3D the triangles have to be drawn
-again at the larger size.
+With it the window is drawn through Vulkan: the 3D scene at the size its screens have in the
+window, four samples a pixel, the game's 2D layers mixed with it, and the touch buttons over
+them. Where there is no Vulkan, the window opens as ever and the setting turns itself off.
 
-## What is needed
+## How
 
-1. **The scene, out of the engine.** After the geometry engine has transformed, clipped and
-   sorted a frame's polygons, they sit in a list (`PolygonList` in `gpu3d.c`): screen
-   positions with depth and w, colours, texture coordinates, and each polygon's attributes,
-   texture parameters and palette. A renderer of any kind starts from that list and the
-   texture memory. The port already builds `gpu3d.c` through its own files
-   (`port/src/gpu3d_main.c`, `gpu3d_upper.c`), so the list can be handed out without changing
-   the decomp. Both halves of the tall view are lists of this kind.
-2. **The DS's pixel rules, as shaders.** Seven texture formats (two with their own alpha,
-   one compressed in 4 x 4 blocks), modulate, decal, toon and highlight shading, shadow
-   polygons, alpha test and blending with the polygon-ID rule, fog, edge marking, depth by z
-   or by w. Each has to give what the software rasteriser gives, which stays the reference:
-   a frame can be drawn both ways and compared.
-3. **The 2D layers over and under it.** The game's 2D layers are blended with the 3D picture
-   by rules set per frame (priorities, windows, alpha, brightness), at the DS's size. For a
-   large 3D picture the 2D engine's work has to be split into "what lies under the 3D
-   layer" and "what lies over it, and how the two mix", so that the mix can be done at the
-   large size. The plan is to ask the 2D engine for each line three times, with the 3D layer
-   all black, all white and absent: from the three answers the mix for any 3D colour follows,
-   without changing `gpu2d.c`.
-4. **Vulkan.** A swapchain on the window SDL gives, the scene drawn into a multisampled
-   target at the window's size, the 2D mix over it, and the touch buttons. OpenGL ES stays
-   as the way without Vulkan. Antialiasing is the target's multisampling; resolution follows
-   the window.
+1. **The scene, out of the engine** (`port/src/scene.h`, `gpu3d_tile.c`). One copy of the
+   decomp's 3D engine gets the game's commands with the projection changed so that the whole
+   view, two screens high with the tall view, is its screen. It does not draw. When a frame's
+   list is complete it hands it out: the polygons, transformed, lit, clipped and in drawing
+   order, with clip coordinates; the textures they use, decoded by the engine's own reader
+   and kept while their source bytes stay the same; and the registers the drawing goes by.
+2. **The DS's pixel rules on a GPU** (`port/src/vk_scene.c`, `port/shaders/scene.frag`).
+   Each polygon is a fan of triangles. Nearest texture sampling with the DS's repeating,
+   flipping and clamping; modulation, decal, toon and highlight shading; the alpha test; fog
+   on colour and alpha or on alpha only; depth by w, as Wild World has it, or by z. An opaque
+   pixel is written with its depth; a translucent one is blended, writes its depth only if
+   the polygon says so, and is not drawn over a translucent pixel of the same polygon ID
+   (the stencil holds the ID a translucent pixel was last written with). The picture keeps
+   colour multiplied by alpha, and alpha, which is what the mixing with the 2D layers needs
+   and what makes multisampling right at the scene's outline.
+3. **The 2D layers** (`port/src/mix2d.c`, `port/shaders/compose.frag`). The three answers of
+   the 2D engine (above) give the lower screen's pixel for any 3D colour; over the upper
+   screen the scene lies on the picture the game drew there. Both at the window's size, the
+   DS's 2D pixels kept square.
+4. **The window** (`port/src/vk_present.c`). A swapchain on SDL's Vulkan surface; one command
+   buffer a frame; a new surface when the app comes back to the screen. Vulkan is not linked:
+   its functions are looked up when the program runs, so the same build runs where there is
+   none.
 
-## Order
+The game's own frames are not touched: the main engine's software picture still goes into
+them, and the frame checks pass with Vulkan on.
 
-1. done another way: the larger picture above is the reference, made by the decomp's own
-   rasteriser in tiles;
-2. done: the three-answer mix of the 2D layers;
-3. the scene handed out of the engine as a list of polygons, and the Vulkan renderer, a feature at a time against that reference, on a software Vulkan
-   driver here and then on phones;
-4. the settings: resolution (automatic by default), antialiasing, and the software
-   renderer kept as a choice.
+## Checks
 
-## What it will not change
+- `acww-kor --scene-dump --shot N` writes a frame's scene; `acww-scene-vk` draws it on this
+  machine's Vulkan device; `port/tests/compare_scene.py` compares it with the software
+  tiles' picture of the same frame (`--resolution 2 --shot N`). On five frames of the
+  new-game recording on llvmpipe: colour 0.011 to 0.016 apart on average (of 1), the
+  differences along the polygons' edges, where the DS places vertices on whole pixels.
+- Under SDL's dummy video driver the window is a Vulkan surface without a display
+  (`VK_EXT_headless_surface`): the whole path, swapchain included, runs in the checks, and
+  `--window-shot` reads the picture back. The new-game recording was run through it with
+  the validation layers on, without a complaint.
 
-The game's own frames. The decomp's software renderer goes on producing the pictures the
-frame checks compare; the GPU's picture is what is shown.
+## Not done
+
+- A phone: nothing here has run on one yet.
+- Shadow volumes, edge marking, wire frames and the rear plane's bitmap, none of which the
+  scenes looked at use. The DS's own anti-aliasing is what multisampling is in place of.
+- Settings for the number of samples and for a size below the window's, for slower devices.
+- OpenGL ES as the way without Vulkan draws the software picture, as before.
