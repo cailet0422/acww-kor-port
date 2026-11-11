@@ -19,6 +19,12 @@ void port_hooks_install(void);
 /* The hook for a branch target, or NULL (run_port.c asks, after the run's own hooks). */
 ArmHook game_hook_at(uint32_t address, void **user);
 
+/* Every branch target is asked about, hundreds of thousands a frame, and nearly none has a
+ * hook: a bit for each of 64 kinds of address (GAME_HOOK_KIND) says whether any address of
+ * that kind has one now. */
+extern uint64_t game_hook_kinds;
+#define GAME_HOOK_KIND(address) (((address) >> 1) & 63u)
+
 /* Whether objects above the lower screen are drawn (the tall view's upper part shows them). */
 void game_hooks_draw_above(int on);
 

@@ -37,12 +37,19 @@ That is why this is not the way to a phone's resolution, only the reference for 
 
 # The GPU renderer
 
-`--vulkan` (`vulkan=1` in the settings, "Vulkan renderer" on Android's settings screen).
-Experimental and off by default: it has run on a software Vulkan driver, not yet on a phone.
+On by default (`vulkan=0` in the settings, or `--no-vulkan`, turns it off; "Vulkan renderer"
+on Android's settings screen).
 
 With it the window is drawn through Vulkan: the 3D scene at the size its screens have in the
 window, four samples a pixel, the game's 2D layers mixed with it, and the touch buttons over
-them. Where there is no Vulkan, the window opens as ever and the setting turns itself off.
+them. `vulkan_scale` (100, 75 or 50; "Vulkan 3D resolution") draws the scene at less than
+the window's size, for a GPU that is not fast enough; it takes effect at once.
+
+Where the device has no Vulkan, or not what the renderer needs of it, the game starts
+without it, with the picture drawn in software as before: it is found out at each start,
+and the setting stays as it is. A start through Vulkan that never gets as far as showing
+frames (a driver that crashes takes the app with it) is counted; after two in a row the
+setting is turned off, and the settings screen says why.
 
 ## How
 
@@ -66,12 +73,36 @@ them. Where there is no Vulkan, the window opens as ever and the setting turns i
    screen the scene lies on the picture the game drew there. Both at the window's size, the
    DS's 2D pixels kept square.
 4. **The window** (`port/src/vk_present.c`). A swapchain on SDL's Vulkan surface; one command
-   buffer a frame; a new surface when the app comes back to the screen. Vulkan is not linked:
-   its functions are looked up when the program runs, so the same build runs where there is
-   none.
+   buffer a frame. Vulkan is not linked: its functions are looked up when the program runs,
+   so the same build runs where there is none.
+5. **The surface's coming and going.** Android takes the window from under the surface
+   whenever another screen comes to the front (the settings, another app). The surface and
+   its swapchain are let go of before that happens, and a new surface is made when the app
+   is back; the same is done after any frame that fails, since the system does not always
+   say what was lost. If new surfaces keep failing, everything of Vulkan's is made anew
+   once, and after that the window goes on without Vulkan, showing the game's own screens.
+6. **A thread for the frames.** Drawing a frame waits for the GPU to be done with the one
+   before, so it is not done on the emulation's thread: that one says what there is to draw
+   and goes on. A GPU slower than the game leaves frames out; nothing queues up.
 
-The game's own frames are not touched: the main engine's software picture still goes into
-them, and the frame checks pass with Vulkan on.
+## What is left out while the GPU draws
+
+What the software engines make for the same frame is not all needed then (`tall3d_lean`,
+`gpu2d_main.c`):
+
+- the main engine's own 3D picture is not drawn while the lower screen shows the scene and
+  the game is not capturing the display (a capture reads the engine's lines; for a second
+  after one, the picture is drawn again);
+- the main 2D engine's lines with the 3D layer in them are not composed: the three answers
+  are all that is taken of them;
+- the answers of a line are kept from the frame before while everything they are made from
+  is the same (a number made of the line's layers, windows and registers says so). In play
+  about 95 lines in 100 are kept; `PORT_MIX_CHECK=1` makes every kept line again and
+  compares.
+
+So the game's own frames are then not the decomp's where the 3D layer is. A run that
+records or compares frames (`--hash`, `--picture-hash`, `--shot`, `--scene-dump`) draws
+everything, and the frame checks pass with Vulkan on.
 
 ## Checks
 
@@ -84,11 +115,16 @@ them, and the frame checks pass with Vulkan on.
   (`VK_EXT_headless_surface`): the whole path, swapchain included, runs in the checks, and
   `--window-shot` reads the picture back. The new-game recording was run through it with
   the validation layers on, without a complaint.
+- `--vulkan-lose N` lets go of the surface at frame N as an app's leaving the screen does:
+  the new surface, everything made anew (`PORT_VULKAN_BREAK=1`: no new surface at first)
+  and the going on without Vulkan (`PORT_VULKAN_BREAK=2`) were each run, the first under
+  the validation layers and the address sanitizer.
+- On a phone: the renderer has been run on one by a player; what is described here was
+  made after their report and has not been on a device yet.
 
 ## Not done
 
-- A phone: nothing here has run on one yet.
 - Shadow volumes, edge marking, wire frames and the rear plane's bitmap, none of which the
   scenes looked at use. The DS's own anti-aliasing is what multisampling is in place of.
-- Settings for the number of samples and for a size below the window's, for slower devices.
+- A setting for the number of samples.
 - OpenGL ES as the way without Vulkan draws the software picture, as before.

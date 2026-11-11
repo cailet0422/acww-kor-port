@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.10.0).** The game runs in the port, on phones too, and its frames are the
+> **Early days (0.11.0).** The game runs in the port, on phones too, and its frames are the
 > decomp's own bit for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)).
 > Sound: [docs/sound.md](docs/sound.md). See the [roadmap](docs/roadmap.md).
 
@@ -37,7 +37,7 @@ This repository adds what the other platforms need, without changing the decomp 
   pacing and the save file;
 - the **tall view**: the 3D scene continued onto the upper screen, so the two screens show one
   picture ([docs/tall-view.md](docs/tall-view.md));
-- a **Vulkan renderer** (experimental, off by default): the 3D scene drawn by the GPU at the
+- a **Vulkan renderer** (on where the device can): the 3D scene drawn by the GPU at the
   screen's own resolution, antialiased, with the game's 2D layers mixed in; or, in software,
   the scene at 2 or 3 times the DS's size (heavy) ([docs/renderer.md](docs/renderer.md));
 - **playing together** (experimental): the DS's local wireless between ports over a network,

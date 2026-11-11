@@ -103,8 +103,8 @@ endif()
 
 # gpu3d.c and gpu2d.c are built several times, through files of the port that include them:
 # the engines themselves, copies of the 3D engine for the parts of the picture beyond the
-# game's own (the tall view, a larger size: src/tall3d.h), and copies of the 2D engines for
-# mixing that picture with the game's 2D layers (src/mix2d.h)
+# game's own (the tall view, a larger size: src/tall3d.h); the 2D engines with what mixes
+# that picture with the game's 2D layers behind them (src/mix2d.h)
 add_library(acww_runtime STATIC ${RUNTIME_SOURCES} src/gpu3d_main.c src/tall3d_engines.c src/tall3d.c
     src/gpu2d_main.c src/mix2d.c)
 target_include_directories(acww_runtime PUBLIC src)
@@ -113,11 +113,6 @@ foreach(n RANGE 0 17)
     add_library(gpu3d_tile${n} OBJECT src/gpu3d_tile.c)
     target_compile_definitions(gpu3d_tile${n} PRIVATE TILE=${n})
     list(APPEND ENGINE_COPIES gpu3d_tile${n})
-endforeach()
-foreach(n RANGE 0 2)
-    add_library(gpu2d_probe${n} OBJECT src/gpu2d_probe.c)
-    target_compile_definitions(gpu2d_probe${n} PRIVATE PROBE=${n})
-    list(APPEND ENGINE_COPIES gpu2d_probe${n})
 endforeach()
 foreach(copy ${ENGINE_COPIES})
     target_include_directories(${copy} PRIVATE "${RUNTIME}" src)
@@ -222,7 +217,7 @@ endif()
 # the run's own (src/game_hooks.h)
 set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/scene_file.c src/vk_scene.c
     src/vk_present.c src/netlink.c src/relay.c src/wifi_port.c src/run_port.c src/sound_sdl.c src/ds_audio_port.c
-    src/wm_port.c src/arm7_port.c)
+    src/wm_port.c src/arm7_port.c src/cores.c)
 set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c src/wm_port.c src/arm7_port.c
     PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
 if(ANDROID)

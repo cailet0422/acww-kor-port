@@ -86,13 +86,14 @@ how to run it for ARM under qemu-user.
 | `port/src/front_sdl.c` | the SDL2 front end (the decomp's `runtime/play.c` on SDL2) |
 | `port/src/touch.c` | the touch buttons and the screens' layout |
 | `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_tile.c` | the tall view and the larger picture: copies of the decomp's 3D engine (docs/tall-view.md, docs/renderer.md) |
-| `port/src/mix2d.c`, `gpu2d_main.c`, `gpu2d_probe.c` | a larger 3D picture mixed with the 2D layers: copies of the decomp's 2D engine |
+| `port/src/mix2d.c`, `gpu2d_main.c` | a larger 3D picture mixed with the 2D layers: the decomp's 2D engine composing each line three more times |
 | `port/src/scene.h`, `vk_scene.c`, `vk_present.c`, `port/shaders/` | the Vulkan renderer: the scene out of the engine, drawn by a GPU, and the window (docs/renderer.md); `vk_shaders.h` is the shaders compiled (`port/tools/make_shaders.sh`) |
 | `port/src/sound_sdl.c`, `ds_audio_port.c` | sound: the decomp's `sound.c` with an SDL audio device, and its mixer with the DS's data fetching and output rate (docs/sound.md) |
 | `port/src/game_hooks.c`, `run_port.c` | hooks into the game's code: drawing above the screen, Mr. Resetti |
 | `port/src/autosave.c` | the port's own save of the town (docs/autosave.md) |
 | `port/src/netlink.c`, `relay.c`, `wm_port.c`, `link_proto.h` | playing together: the wireless carried over the network, and the relay of rooms (docs/multiplayer.md) |
 | `port/src/wifi_port.c`, `arm7_port.c` | Nintendo Wi-Fi Connection: the access point's gateway to the real network and the console's connection settings; the console's reset, which the game's Wi-Fi settings need (docs/multiplayer.md) |
+| `port/src/cores.c` | the threads kept to a phone's fast cores |
 | `port/src/rom_prep.c` | the ROM check and the split into modules |
 | `port/src/memory_based.c` | the DS's memory where the system has room, with a base added (docs/64bit.md) |
 | `port/src/native_os_portable.c` | stand-ins for the decomp's x86-only host code |

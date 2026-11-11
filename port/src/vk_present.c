@@ -706,14 +706,36 @@ void vk_present_destroy(VkPresenter *p)
     free(p);
 }
 
-int vk_present_surface(VkPresenter *p, VkSurfaceKHR surface, int width, int height)
+void vk_present_surface_gone(VkPresenter *p)
 {
+    const VkApi *vk = &p->vk;
     settle(p);
-    p->vk.DeviceWaitIdle(p->device);
+    vk->DeviceWaitIdle(p->device);
     swapchain_free(p);
     if (p->surface != VK_NULL_HANDLE) {
-        p->vk.DestroySurfaceKHR(p->instance, p->surface, NULL);
+        vk->DestroySurfaceKHR(p->instance, p->surface, NULL);
+        p->surface = VK_NULL_HANDLE;
     }
+    p->extent.width = p->extent.height = 0;
+    /* the two semaphores anew: a frame that failed half way may have left one signaled */
+    VkSemaphoreCreateInfo semaphore = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
+    VkSemaphore acquired = VK_NULL_HANDLE, drawn = VK_NULL_HANDLE;
+    if (vk->CreateSemaphore(p->device, &semaphore, NULL, &acquired) == VK_SUCCESS &&
+        vk->CreateSemaphore(p->device, &semaphore, NULL, &drawn) == VK_SUCCESS) {
+        vk->DestroySemaphore(p->device, p->acquired, NULL);
+        vk->DestroySemaphore(p->device, p->drawn, NULL);
+        p->acquired = acquired;
+        p->drawn = drawn;
+    } else {
+        if (acquired != VK_NULL_HANDLE) {
+            vk->DestroySemaphore(p->device, acquired, NULL);
+        }
+    }
+}
+
+int vk_present_surface(VkPresenter *p, VkSurfaceKHR surface, int width, int height)
+{
+    vk_present_surface_gone(p);
     p->surface = surface;
     return swapchain_make(p, width, height);
 }
@@ -805,6 +827,9 @@ int vk_present_frame(VkPresenter *p, const PresentFrame *frame, int width, int h
 {
     const VkApi *vk = &p->vk;
     settle(p);
+    if (p->surface == VK_NULL_HANDLE) {
+        return 1;
+    }
     if (p->swapchain == VK_NULL_HANDLE || (int) p->extent.width != width || (int) p->extent.height != height) {
         int made = swapchain_make(p, width, height);
         if (made != 0) {
@@ -831,7 +856,9 @@ int vk_present_frame(VkPresenter *p, const PresentFrame *frame, int width, int h
     int tall = frame->scene != NULL && frame->scene->tall;
     VkSceneRenderer *scene = NULL;
     if (frame->scene != NULL && frame->black != NULL && frame->white != NULL && frame->none != NULL) {
-        scene = scene_renderer(p, frame->bottom[2], tall ? frame->top[3] + frame->bottom[3] : frame->bottom[3]);
+        int percent = frame->scene_percent <= 0 || frame->scene_percent > 100 ? 100 : frame->scene_percent;
+        int height = tall ? frame->top[3] + frame->bottom[3] : frame->bottom[3];
+        scene = scene_renderer(p, frame->bottom[2] * percent / 100, height * percent / 100);
     }
     if (!p->sets_for_scene) {
         sets_write(p);

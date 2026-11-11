@@ -83,13 +83,14 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/src/front_sdl.c` | SDL2 화면 코드(디컴프의 `runtime/play.c`를 SDL2로 옮김) |
 | `port/src/touch.c` | 터치 버튼과 화면 배치 |
 | `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_tile.c` | 이어진 화면과 더 큰 그림: 디컴프 3D 엔진의 복제본(docs/tall-view.ko.md, docs/renderer.ko.md) |
-| `port/src/mix2d.c`, `gpu2d_main.c`, `gpu2d_probe.c` | 큰 3D 그림을 2D 레이어와 섞기: 디컴프 2D 엔진의 복제본 |
+| `port/src/mix2d.c`, `gpu2d_main.c` | 큰 3D 그림을 2D 레이어와 섞기: 디컴프 2D 엔진으로 각 줄을 세 번 더 합성 |
 | `port/src/scene.h`, `vk_scene.c`, `vk_present.c`, `port/shaders/` | Vulkan 렌더러: 엔진에서 꺼낸 장면, GPU로 그리기, 창(docs/renderer.ko.md). `vk_shaders.h`는 컴파일된 셰이더(`port/tools/make_shaders.sh`) |
 | `port/src/sound_sdl.c`, `ds_audio_port.c` | 소리: 디컴프의 `sound.c`에 SDL 오디오 장치를 붙이고, 믹서에 DS의 미리 읽기와 출력 주기를 더함(docs/sound.ko.md) |
 | `port/src/game_hooks.c`, `run_port.c` | 게임 코드에 거는 훅: 화면 위쪽 그리기, 도루묵씨 |
 | `port/src/autosave.c` | 포트의 자체 마을 저장(docs/autosave.ko.md) |
 | `port/src/netlink.c`, `relay.c`, `wm_port.c`, `link_proto.h` | 같이 하기: 무선을 네트워크로 실어 나르기와 방 중계 서버(docs/multiplayer.ko.md) |
 | `port/src/wifi_port.c`, `arm7_port.c` | 닌텐도 Wi-Fi 커넥션: 액세스 포인트에서 실제 네트워크로 나가는 게이트웨이와 본체 접속 설정, 게임의 Wi-Fi 설정에 필요한 본체 리셋(docs/multiplayer.ko.md) |
+| `port/src/cores.c` | 스레드를 휴대폰의 빠른 코어에 두기 |
 | `port/src/rom_prep.c` | ROM 확인과 모듈 분리 |
 | `port/src/memory_based.c` | DS 메모리를 시스템이 내주는 위치에 두고 기준 주소를 더함(docs/64bit.ko.md) |
 | `port/src/native_os_portable.c` | 디컴프의 x86 전용 호스트 코드를 대신하는 코드 |

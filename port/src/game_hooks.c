@@ -69,9 +69,14 @@ static struct {
 } cleared[8];
 static int cleared_count;
 
+/* game_hooks.h: the kinds of address that have a hook now (made anew whenever that changes) */
+uint64_t game_hook_kinds;
+static void kinds_update(void);
+
 void game_hooks_draw_above(int on)
 {
     draw_above = on;
+    kinds_update();
 }
 
 unsigned long game_hooks_drawn_above(void)
@@ -128,6 +133,7 @@ static int can_draw_returned(ArmCpu *cpu, void *user)
         if (cleared[i].back == pc && cleared[i].sp == cpu->r[13]) {
             store(cleared[i].actor + ACTOR_CULL_FLAGS, load(cleared[i].actor + ACTOR_CULL_FLAGS) | ACTOR_CULL_FAR);
             cleared[i] = cleared[--cleared_count];
+            kinds_update();
             break;
         }
     }
@@ -145,6 +151,7 @@ static int can_draw_entered(ArmCpu *cpu, void *user)
         cleared[cleared_count].sp = cpu->r[13];
         cleared[cleared_count].actor = actor;
         cleared_count++;
+        kinds_update();
         drawn_above++;
     }
     return ARM_HOOK_QUIET;
@@ -170,6 +177,7 @@ static unsigned long resetti_kept_away;
 void game_hooks_resetti(int on)
 {
     resetti = on;
+    kinds_update();
 }
 
 unsigned long game_hooks_resetti_kept_away(void)
@@ -185,6 +193,21 @@ static int unsaved_answered(ArmCpu *cpu, void *user)
         resetti_kept_away++;
     }
     return ARM_HOOK_QUIET;
+}
+
+static void kinds_update(void)
+{
+    uint64_t kinds = 0;
+    if (!resetti) {
+        kinds |= 1ull << GAME_HOOK_KIND(LOAD_UNSAVED_ANSWER);
+    }
+    if (draw_above) {
+        kinds |= 1ull << GAME_HOOK_KIND(ACTOR_CAN_DRAW);
+        for (int i = 0; i < cleared_count; i++) {
+            kinds |= 1ull << GAME_HOOK_KIND(cleared[i].back);
+        }
+    }
+    game_hook_kinds = kinds;
 }
 
 ArmHook game_hook_at(uint32_t address, void **user)

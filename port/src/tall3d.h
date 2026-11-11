@@ -40,6 +40,13 @@ void tall3d_enable_scene(int tall_view, SceneSink sink, void *user);
  * screen (else there is no scene to show), whether it goes on over the upper screen, and the
  * lower screen's master brightness. For the drawing thread. */
 int tall3d_scene_state(int *over_upper, uint32_t *brightness);
+/* With the scene handed out (tall3d_enable_scene): whether the main engine's own picture may
+ * be left undrawn while the scene's is the one shown. The game's frames are then no longer
+ * the decomp's where the 3D layer is (its lines stay as they last were), so not for a run
+ * that records or compares them. Off at the start. */
+void tall3d_lean(int on);
+/* how many of the main engine's pictures were left undrawn, and drawn, since the start */
+void tall3d_lean_counts(unsigned long *left, unsigned long *drawn);
 int tall3d_scale(void);
 
 /* For the frame the drawing thread has just finished (call it from frame_output_hook): the

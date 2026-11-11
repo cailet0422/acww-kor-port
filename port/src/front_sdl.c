@@ -22,6 +22,9 @@
 #include <SDL.h>
 #include <SDL_vulkan.h>
 #ifdef __ANDROID__
+#include <SDL_syswm.h>
+#endif
+#ifdef __ANDROID__
 #include <jni.h>
 #endif
 
@@ -52,6 +55,7 @@
 #include "tall3d_engine.h"
 #include "touch.h"
 #include "vk_present.h"
+#include "cores.h"
 #include "wifi_port.h"
 
 /* The DS's frame: 263 lines of 2130 bus cycles at 33,513,982 Hz, about 59.8261 a second. */
@@ -112,7 +116,7 @@ static void usage(void)
             "  --wifi-dns ADDR  with it: the name server the console asks (a private server's DNS)\n"
             "                  (\"wifi=1\" and \"wifi_dns=\" in DATA/settings.txt keep them)\n"
             "  --vulkan, --no-vulkan  the window drawn through Vulkan, the 3D scene at the window's\n"
-            "                  own size and multisampled (experimental; \"vulkan=1\" in\n"
+            "                  own size and multisampled (on where the device can; \"vulkan=0\" in\n"
             "                  DATA/settings.txt keeps it)\n"
             "  --no-sound      without sound (\"sound=0\" in DATA/settings.txt keeps it)\n"
             "  --audio-wav FILE  also write the mixer's sound to a new WAV file (the decomp's\n"
@@ -253,6 +257,10 @@ static Layout layout;
 static uint32_t keys_held_keyboard, keys_held_pad, keys_taps;
 static int pen_down, pen_x, pen_y, pen_tap, pen_tap_x, pen_tap_y;
 static int mouse_pen, fast_keyboard, quit_asked;
+static void picture_setup(void);
+void gpu2d_main_probe_counts(unsigned long *lines, unsigned long *kept, unsigned long *wrong); /* gpu2d_main.c */
+static int scene_dump;
+static FILE *picture_hashes;
 static SDL_GameController *pads[4];
 
 /* The save file ----------------------------------------------------------------------------- */
@@ -509,8 +517,14 @@ static void settings_path(char *out, size_t size)
 static int tall_setting = 1;
 /* the 3D scene's size, likewise taking effect at the next start */
 static int resolution_setting = 1;
-/* the Vulkan renderer, likewise from the next start (the engines are set up for it then) */
-static int vulkan_setting;
+/* the Vulkan renderer, likewise from the next start (the engines are set up for it then):
+   on unless turned off; a device without it is found out at the start (open_window) */
+static int vulkan_setting = 1;
+/* the scene's picture through Vulkan against the window's pixels, in percent: at once */
+static int vulkan_scale_setting = 100;
+/* the threads kept to a phone's fast cores (cores.h): from the next start */
+static int fast_cores_setting = 1;
+static char cores_note[96];
 /* "arrange=1": the settings screen asks for the arranging of the buttons (settings_apply) */
 static int arrange_asked;
 
@@ -550,6 +564,10 @@ static void settings_load(void)
             opt.link_room[strcspn(opt.link_room, "\r\n")] = 0;
         } else if (sscanf(line, "tall=%d", &v) == 1) {
             tall_setting = v != 0;
+        } else if (sscanf(line, "vulkan_scale=%d", &v) == 1) {
+            vulkan_scale_setting = v < 25 ? 25 : v > 100 ? 100 : v;
+        } else if (sscanf(line, "fast_cores=%d", &v) == 1) {
+            fast_cores_setting = v != 0;
         } else if (sscanf(line, "sound=%d", &v) == 1) {
             opt.sound = v != 0;
         } else if (sscanf(line, "resolution=%d", &v) == 1) {
@@ -567,7 +585,7 @@ static void settings_save(void)
 {
     char path[PATH_SIZE + 16];
     settings_path(path, sizeof(path));
-    FILE *f = fopen(path, "w");
+    FILE *f = opt.read_only ? NULL : fopen(path, "w"); /* (--read-only: nothing of DATA's is written) */
     if (f != NULL) {
         fprintf(f, "full_touch=%d\n", opt.full_touch);
         fprintf(f, "resetti=%d\n", opt.resetti);
@@ -581,6 +599,8 @@ static void settings_save(void)
         fprintf(f, "wifi_mac=%s\n", opt.wifi_mac);
         fprintf(f, "tall=%d\n", tall_setting);
         fprintf(f, "sound=%d\n", opt.sound);
+        fprintf(f, "vulkan_scale=%d\n", vulkan_scale_setting);
+        fprintf(f, "fast_cores=%d\n", fast_cores_setting);
         fprintf(f, "resolution=%d\n", resolution_setting);
         touch_settings_write(f);
         fclose(f);
@@ -592,7 +612,16 @@ static void settings_save(void)
 static VkPresenter *presenter;
 static VkApi vk_api;
 static VkInstance vk_instance;
+static SDL_mutex *vk_lock; /* everything of Vulkan's once frames are drawn (draw_vulkan) */
 static int vk_headless; /* no window to show on (the checks, under SDL's dummy driver): a surface of no display */
+static PFN_vkGetInstanceProcAddr vk_get;
+static int vulkan_explicit;     /* asked for on the command line (not only on by default) */
+static int vulkan_lost;         /* the surface was let go of or failed: a new one before the next frame */
+static int vulkan_failures;     /* new surfaces that did not work, in a row */
+static Uint32 vulkan_retry_tick;
+static unsigned vulkan_frames;  /* shown through Vulkan in this run */
+static char vulkan_note[200];   /* why the window is not drawn through Vulkan, for the status */
+static uint32_t vulkan_lose_frame; /* --vulkan-lose N: the surface is let go of at frame N (a check) */
 
 /* The size of what is drawn on, in pixels. */
 static void output_size(int *w, int *h)
@@ -606,9 +635,26 @@ static void output_size(int *w, int *h)
     }
 }
 
+/* Whether the window has something under it to make a surface on: on Android the system
+ * takes the native window away while another screen is in front. */
+static int window_ready(void)
+{
+#ifdef __ANDROID__
+    SDL_SysWMinfo info;
+    SDL_VERSION(&info.version);
+    return SDL_GetWindowWMInfo(window, &info) && info.info.android.window != NULL;
+#else
+    return 1;
+#endif
+}
+
 static VkSurfaceKHR vulkan_surface(PFN_vkGetInstanceProcAddr get)
 {
     VkSurfaceKHR surface = VK_NULL_HANDLE;
+    const char *broken = getenv("PORT_VULKAN_BREAK"); /* a check: no new surface after the first */
+    if (broken != NULL && *broken && (presenter != NULL || (*broken == '2' && vulkan_frames != 0))) {
+        return VK_NULL_HANDLE; /* ("2": nor when everything is made anew) */
+    }
     if (!vk_headless) {
         return SDL_Vulkan_CreateSurface(window, vk_instance, &surface) ? surface : VK_NULL_HANDLE;
     }
@@ -625,6 +671,7 @@ static int vulkan_open(int headless)
     const char *names[16];
     unsigned count = 16;
     vk_headless = headless;
+    vk_instance = VK_NULL_HANDLE;
     if (headless) {
         void *library = SDL_LoadObject("libvulkan.so.1");
         get = library != NULL ? (PFN_vkGetInstanceProcAddr) SDL_LoadFunction(library, "vkGetInstanceProcAddr") : NULL;
@@ -635,13 +682,16 @@ static int vulkan_open(int headless)
         get = (PFN_vkGetInstanceProcAddr) SDL_Vulkan_GetVkGetInstanceProcAddr();
         if (!SDL_Vulkan_GetInstanceExtensions(window, &count, names)) {
             SDL_Log("play: vulkan: no surface extensions (%s)", SDL_GetError());
+            snprintf(vulkan_note, sizeof(vulkan_note), "no Vulkan surface extensions");
             return -1;
         }
     }
     if (get == NULL || vk_api_load_global(&vk_api, get) != 0) {
         SDL_Log("play: vulkan: no Vulkan library");
+        snprintf(vulkan_note, sizeof(vulkan_note), "no Vulkan library");
         return -1;
     }
+    vk_get = get;
     VkApplicationInfo app = {.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO,
                              .pApplicationName = "acww-kor-port",
                              .apiVersion = VK_API_VERSION_1_0};
@@ -651,15 +701,19 @@ static int vulkan_open(int headless)
                                  .ppEnabledExtensionNames = names};
     if (vk_api.CreateInstance(&info, NULL, &vk_instance) != VK_SUCCESS) {
         SDL_Log("play: vulkan: no instance");
+        snprintf(vulkan_note, sizeof(vulkan_note), "no Vulkan instance");
+        vk_instance = VK_NULL_HANDLE;
         return -1;
     }
     if (vk_api_load(&vk_api, get, vk_instance) != 0 || vk_api_load_wsi(&vk_api, get, vk_instance) != 0) {
         SDL_Log("play: vulkan: the library lacks functions");
+        snprintf(vulkan_note, sizeof(vulkan_note), "the Vulkan library lacks functions");
         return -1;
     }
     VkSurfaceKHR surface = vulkan_surface(get);
     if (surface == VK_NULL_HANDLE) {
         SDL_Log("play: vulkan: no surface (%s)", SDL_GetError());
+        snprintf(vulkan_note, sizeof(vulkan_note), "no Vulkan surface");
         return -1;
     }
     int w, h;
@@ -673,10 +727,89 @@ static int vulkan_open(int headless)
     if (presenter == NULL) {
         vk_api.DestroySurfaceKHR(vk_instance, surface, NULL);
         SDL_Log("play: vulkan: %s", why);
+        snprintf(vulkan_note, sizeof(vulkan_note), "Vulkan: %s", why != NULL ? why : "the device cannot");
         return -1;
     }
     SDL_Log("play: the window through Vulkan on %s%s", vk_present_device(presenter), headless ? " (no display)" : "");
+    if (vk_lock == NULL) {
+        vk_lock = SDL_CreateMutex();
+    }
+    /* the game's own 3D picture is not drawn while the GPU's is the one seen, unless this
+       run records the game's frames (hashes, shots) */
+    tall3d_lean(!scene_dump && opt.shot_count == 0 && picture_hashes == NULL && (opt.hash == NULL || !*opt.hash) &&
+                getenv("PORT_VULKAN_FULL") == NULL);
+    vulkan_note[0] = 0;
+    vulkan_lost = 0;
+    vulkan_failures = 0;
     return 0;
+}
+
+/* What vulkan_open made, or as much of it as there is. */
+static void vulkan_close(void)
+{
+    tall3d_lean(0);
+    if (presenter != NULL) {
+        vk_present_destroy(presenter);
+        presenter = NULL;
+    }
+    if (vk_instance != VK_NULL_HANDLE && vk_api.DestroyInstance != NULL) {
+        vk_api.DestroyInstance(vk_instance, NULL);
+    }
+    vk_instance = VK_NULL_HANDLE;
+}
+
+/* A Vulkan start that never got as far as showing frames (a driver that crashes or hangs in
+ * it takes the app with it, every time): DATA/vulkan.trying counts the starts that did not,
+ * and the second one in a row turns the setting off. The file goes once frames are shown, and
+ * when the app is left in the ordinary way. */
+static void vulkan_marker_path(char *out, size_t size)
+{
+    snprintf(out, size, "%s/vulkan.trying", opt.data);
+}
+
+static int vulkan_marker_count(void)
+{
+    char path[PATH_SIZE + 24];
+    int count = 0;
+    vulkan_marker_path(path, sizeof(path));
+    FILE *f = fopen(path, "r");
+    if (f != NULL) {
+        if (fscanf(f, "%d", &count) != 1) {
+            count = 1;
+        }
+        fclose(f);
+    }
+    return count;
+}
+
+static void vulkan_marker_set(int count)
+{
+    char path[PATH_SIZE + 24];
+    vulkan_marker_path(path, sizeof(path));
+    if (opt.read_only) {
+        return;
+    }
+    if (count <= 0) {
+        remove(path);
+        return;
+    }
+    FILE *f = fopen(path, "w");
+    if (f != NULL) {
+        fprintf(f, "%d\n", count);
+        fclose(f);
+    }
+}
+
+/* The surface is let go of: the app leaves the screen (Android takes the window under it),
+ * or a frame failed on it. Nothing is drawn until vulkan_renew has made a new one. */
+static void vulkan_release(const char *why)
+{
+    if (presenter != NULL && !vulkan_lost) {
+        SDL_Log("play: frame %u: the Vulkan surface is let go of (%s)", frame_now, why);
+        vk_present_surface_gone(presenter);
+        vulkan_lost = 1;
+        vulkan_retry_tick = 0;
+    }
 }
 
 /* How the run is going, in DATA/status.txt for the settings screen to show: the speed over
@@ -699,6 +832,7 @@ static void status_write(void)
         fprintf(f, "%.1f fps (DS %.1f), busy %.0f%%\n", status_fps, DS_BUS_HZ / DS_CYCLES_PER_FRAME, status_busy * 100.0);
     }
     fprintf(f, "sound: %s\n", opt.sound ? sound : "off");
+    fprintf(f, "cores: %s\n", cores_note[0] ? cores_note : "as the system puts the threads");
     if (opt.link) {
         char link[320];
         netlink_status(link, sizeof(link));
@@ -709,8 +843,11 @@ static void status_write(void)
         wifi_port_status(wifi, sizeof(wifi));
         fprintf(f, "wifi: %s\n", wifi);
     }
-    fprintf(f, "picture: %dx, %s, %s\n", picture_scale, opt.tall ? "tall" : "two screens",
-            presenter != NULL ? vk_present_device(presenter) : "no Vulkan");
+    fprintf(f, "picture: %dx, %s, %s%s\n", picture_scale, opt.tall ? "tall" : "two screens",
+            presenter != NULL ? "Vulkan on " : "without Vulkan", presenter != NULL ? vk_present_device(presenter) : "");
+    if (presenter == NULL && vulkan_note[0]) {
+        fprintf(f, "vulkan: %s\n", vulkan_note);
+    }
     fclose(f);
 }
 
@@ -834,28 +971,48 @@ static int open_window(void)
 #endif
     const int width = opt.width > 0 ? opt.width : FRONT_SCREEN_W * opt.scale;
     const int height = opt.height > 0 ? opt.height : 2 * FRONT_SCREEN_H * opt.scale;
+    const char *driver = SDL_GetCurrentVideoDriver();
+    const int no_display = driver != NULL && strcmp(driver, "dummy") == 0;
+    if (opt.vulkan && no_display && !vulkan_explicit) {
+        opt.vulkan = 0; /* the checks' windows of no display: through Vulkan only when asked */
+        picture_setup();
+    }
+    if (opt.vulkan && !no_display && vulkan_marker_count() >= 2) {
+        SDL_Log("play: Vulkan did not get through its start the last two times: off (\"vulkan=0\" in the settings)");
+        snprintf(vulkan_note, sizeof(vulkan_note), "turned off: the last two starts with it did not get through");
+        vulkan_setting = 0;
+        settings_save();
+        vulkan_marker_set(0);
+        opt.vulkan = 0;
+        picture_setup();
+    }
     if (opt.vulkan) {
         /* through Vulkan: a window made for it (first: Android has one window, no more).
            Where the video driver has no Vulkan (SDL's dummy one, in the checks), a plain
-           window and a surface without a display. Without either, the window as ever, and
-           the setting off for the next start (the engines are set up for Vulkan in this one:
-           it shows the two screens plainly) */
-        window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height,
-                                  flags | SDL_WINDOW_VULKAN);
-        if (window != NULL && vulkan_open(0) == 0) {
-            return 0;
-        }
-        if (window != NULL) {
-            SDL_DestroyWindow(window);
+           window and a surface without a display. Where the device cannot (no Vulkan, or
+           not what the renderer needs of it), the window as ever and the engines set up for
+           that: the setting stays, the device is asked again at the next start */
+        if (!no_display) {
+            vulkan_marker_set(vulkan_marker_count() + 1);
+            window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height,
+                                      flags | SDL_WINDOW_VULKAN);
+            if (window != NULL && vulkan_open(0) == 0) {
+                return 0;
+            }
+            vulkan_close();
+            if (window != NULL) {
+                SDL_DestroyWindow(window);
+            }
+            vulkan_marker_set(0); /* it said no in good order */
         }
         window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags);
-        const char *driver = SDL_GetCurrentVideoDriver();
-        if (window != NULL && driver != NULL && strcmp(driver, "dummy") == 0 && vulkan_open(1) == 0) {
+        if (window != NULL && no_display && vulkan_open(1) == 0) {
             return 0;
         }
-        SDL_Log("play: no Vulkan here: the window without it, and \"vulkan=0\" kept for the next start");
-        vulkan_setting = 0;
-        settings_save();
+        vulkan_close();
+        SDL_Log("play: no Vulkan on this device (%s): the window without it", vulkan_note);
+        opt.vulkan = 0;
+        picture_setup();
     } else {
         window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, width, height, flags);
     }
@@ -933,10 +1090,29 @@ static Scene *scene_latest;  /* from the scene engine, not yet a frame's (scene_
 static Scene *scene_current; /* the scene of the frame shown (shown_lock) */
 static SDL_mutex *scene_lock;
 
-static void draw_vulkan(void)
+/* A frame through Vulkan is drawn by a thread of its own, so that the emulation never waits
+ * for the GPU (a frame's drawing waits for the one before it to be done, and for a picture
+ * of the window to be free). The emulation's thread says what there is to draw (`job`: where
+ * the screens are in the window, the buttons' triangles) and goes on; the drawing takes the
+ * newest of everything when it comes to it, so a GPU that is slower than the game leaves
+ * frames out and nothing queues up. Everything of Vulkan's is done under vk_lock, by this
+ * thread for the frames and by the emulation's for the surface's coming and going. */
+static struct {
+    SDL_mutex *lock;
+    SDL_cond *wake;
+    SDL_Thread *thread;
+    unsigned posted, taken;
+    int w, h, top[4], bottom[4];
+    int ui_count, scene_percent;
+    uint32_t capture_frame; /* this frame's window is saved as a PNG; 0 for none */
+    TouchVertex ui[32768];
+} job;
+
+/* On the drawing's thread, under vk_lock. */
+static void draw_vulkan_frame(int w, int h, const int top[4], const int bottom[4], const TouchVertex *ui, int ui_count,
+                              int scene_percent, uint32_t capture_frame)
 {
     static uint32_t upper[DS_PIXELS], lower[DS_PIXELS], black[DS_PIXELS], white[DS_PIXELS], none[DS_PIXELS];
-    static TouchVertex ui[32768];
     PresentFrame f;
     memset(&f, 0, sizeof(f));
     SDL_LockMutex(shown_lock);
@@ -956,30 +1132,30 @@ static void draw_vulkan(void)
     f.scene = packet.scene_shown && packet.answers ? scene : NULL;
     f.scene_over_upper = packet.over_upper;
     f.brightness = packet.brightness;
-    drawn_frame = shown_frame;
     SDL_UnlockMutex(shown_lock);
 
-    update_layout();
-    int w, h;
-    output_size(&w, &h);
     f.upper = upper;
     f.lower = lower;
-    f.top[0] = layout.top.x, f.top[1] = layout.top.y, f.top[2] = layout.top.w, f.top[3] = layout.top.h;
-    f.bottom[0] = layout.bottom.x, f.bottom[1] = layout.bottom.y, f.bottom[2] = layout.bottom.w, f.bottom[3] = layout.bottom.h;
-    if (layout.touch) {
-        f.ui = (const PresentVertex *) ui;
-        f.ui_count = touch_draw_list(&layout, keys_held_keyboard | keys_held_pad | touch_keys(), ui, (int) (sizeof(ui) / sizeof(ui[0])));
+    memcpy(f.top, top, sizeof(f.top));
+    memcpy(f.bottom, bottom, sizeof(f.bottom));
+    f.ui = (const PresentVertex *) ui;
+    f.ui_count = ui_count;
+    f.capture = capture_frame != 0;
+    f.scene_percent = scene_percent;
+    static int no_draw = -1; /* PORT_VULKAN_NO_DRAW: a measurement of everything but the GPU's part */
+    if (no_draw < 0) {
+        no_draw = getenv("PORT_VULKAN_NO_DRAW") != NULL;
     }
-    f.capture = opt.window_shot != 0 && opt.window_shot == frame_now;
-    int got = vk_present_frame(presenter, &f, w, h);
-    if (got == 1 && !vk_headless) {
-        /* the surface went with the app's leaving the screen: a new one, once there is a window again */
-        VkSurfaceKHR surface = VK_NULL_HANDLE;
-        if (SDL_Vulkan_CreateSurface(window, vk_instance, &surface)) {
-            vk_present_surface(presenter, surface, w, h);
-        }
+    int got = no_draw ? 0 : vk_present_frame(presenter, &f, w, h);
+    if (got != 0) {
+        /* the surface went (with the app's leaving the screen, or however the system says
+           it): let go of, and a new one before the next frame (vulkan_renew) */
+        vulkan_failures += got < 0;
+        vulkan_release(got < 0 ? "a frame failed" : "it is gone");
+    } else if (++vulkan_frames == 120) {
+        vulkan_marker_set(0);
     }
-    if (f.capture) {
+    if (f.capture && got == 0) {
         int pw, ph, bgra;
         const uint8_t *pixels = vk_present_pixels(presenter, &pw, &ph, &bgra);
         uint32_t *rgb = pixels != NULL ? malloc((size_t) pw * (size_t) ph * 4) : NULL;
@@ -989,7 +1165,7 @@ static void draw_vulkan(void)
                 const uint8_t *q = pixels + 4 * i;
                 rgb[i] = bgra ? (uint32_t) q[2] << 16 | (uint32_t) q[1] << 8 | q[0] : (uint32_t) q[0] << 16 | (uint32_t) q[1] << 8 | q[2];
             }
-            snprintf(path, sizeof(path), "%s/window-%05u.png", opt.data, frame_now);
+            snprintf(path, sizeof(path), "%s/window-%05u.png", opt.data, capture_frame);
             png_write(path, rgb, pw, ph);
             free(rgb);
         }
@@ -1003,10 +1179,171 @@ static void draw_vulkan(void)
     SDL_UnlockMutex(shown_lock);
 }
 
+static int vulkan_thread(void *arg)
+{
+    static TouchVertex ui[sizeof(job.ui) / sizeof(job.ui[0])];
+    (void) arg;
+    for (;;) {
+        int w, h, top[4], bottom[4], ui_count, scene_percent;
+        uint32_t capture_frame;
+        SDL_LockMutex(job.lock);
+        while (job.posted == job.taken) {
+            SDL_CondWait(job.wake, job.lock);
+        }
+        job.taken = job.posted;
+        w = job.w;
+        h = job.h;
+        memcpy(top, job.top, sizeof(top));
+        memcpy(bottom, job.bottom, sizeof(bottom));
+        ui_count = job.ui_count;
+        scene_percent = job.scene_percent;
+        memcpy(ui, job.ui, (size_t) ui_count * sizeof(ui[0]));
+        capture_frame = job.capture_frame;
+        job.capture_frame = 0;
+        SDL_UnlockMutex(job.lock);
+
+        SDL_LockMutex(vk_lock);
+        if (presenter != NULL && !vulkan_lost) {
+            draw_vulkan_frame(w, h, top, bottom, ui, ui_count, scene_percent, capture_frame);
+        }
+        SDL_UnlockMutex(vk_lock);
+        if (capture_frame != 0) {
+            SDL_LockMutex(job.lock);
+            SDL_CondBroadcast(job.wake); /* (the emulation's thread may be waiting for the picture) */
+            SDL_UnlockMutex(job.lock);
+        }
+    }
+    return 0;
+}
+
+/* On the emulation's thread: the frame shown is to be drawn. */
+static void draw_vulkan(void)
+{
+    if (job.thread == NULL) {
+        job.lock = SDL_CreateMutex();
+        job.wake = SDL_CreateCond();
+        job.thread = SDL_CreateThread(vulkan_thread, "vulkan", NULL);
+    }
+    update_layout();
+    int w, h;
+    output_size(&w, &h);
+    SDL_LockMutex(job.lock);
+    job.w = w;
+    job.h = h;
+    job.top[0] = layout.top.x, job.top[1] = layout.top.y, job.top[2] = layout.top.w, job.top[3] = layout.top.h;
+    job.bottom[0] = layout.bottom.x, job.bottom[1] = layout.bottom.y, job.bottom[2] = layout.bottom.w, job.bottom[3] = layout.bottom.h;
+    job.ui_count = 0;
+    job.scene_percent = vulkan_scale_setting;
+    if (layout.touch) {
+        job.ui_count = touch_draw_list(&layout, keys_held_keyboard | keys_held_pad | touch_keys(), job.ui,
+                                       (int) (sizeof(job.ui) / sizeof(job.ui[0])));
+    }
+    int capture = opt.window_shot != 0 && opt.window_shot == frame_now;
+    if (capture) {
+        job.capture_frame = frame_now;
+    }
+    job.posted++;
+    SDL_CondBroadcast(job.wake);
+    /* a window's picture that was asked for is waited for (a check, or a screenshot): the
+       run may end right after this frame */
+    Uint32 since = SDL_GetTicks();
+    while (capture && job.capture_frame != 0 && SDL_GetTicks() - since < 5000) {
+        SDL_CondWaitTimeout(job.wake, job.lock, 100);
+    }
+    SDL_UnlockMutex(job.lock);
+    if (capture) {
+        /* (and its drawing, which follows the taking) */
+        SDL_LockMutex(vk_lock);
+        SDL_UnlockMutex(vk_lock);
+    }
+    drawn_frame = shown_frame;
+}
+
+/* Vulkan is given up in the middle of a run (new surfaces keep failing): the window as it is
+ * without Vulkan, showing the game's two screens as they are (the engines stay set up for
+ * the scene's hand-over, so the tall view waits for the next start), and the setting off. */
+static void vulkan_give_up(void)
+{
+    SDL_Log("play: frame %u: Vulkan cannot draw on the window any more: the window without it (\"vulkan=0\" kept)", frame_now);
+    snprintf(vulkan_note, sizeof(vulkan_note), "turned off: the window could not be drawn on again");
+    vulkan_close();
+    vulkan_lost = 0;
+    vulkan_setting = 0;
+    settings_save();
+    Uint32 flags = SDL_GetWindowFlags(window) & (SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_FULLSCREEN_DESKTOP);
+    int w, h;
+    SDL_GetWindowSize(window, &w, &h);
+    SDL_DestroyWindow(window);
+    window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, w, h, flags);
+    if (window == NULL || open_renderer() != 0) {
+        SDL_Log("play: no window (%s)", SDL_GetError());
+        quit_asked = 1;
+    }
+}
+
+/* A new surface for the window, and the swapchain on it. Tried ten times a second while
+ * there is none; after a second of failures everything of Vulkan's is made anew, and after
+ * two it is given up. */
+static void vulkan_renew(void)
+{
+    Uint32 now = SDL_GetTicks();
+    if (vulkan_retry_tick != 0 && now - vulkan_retry_tick < 100) {
+        return;
+    }
+    vulkan_retry_tick = now != 0 ? now : 1;
+    if (!window_ready()) {
+        return; /* the app is not on the screen */
+    }
+    if (vulkan_failures >= 20) {
+        vulkan_give_up();
+        return;
+    }
+    if (vulkan_failures == 10) {
+        SDL_Log("play: frame %u: Vulkan from the start again", frame_now);
+        vulkan_close();
+        if (vulkan_open(vk_headless) != 0) {
+            vulkan_close();
+            vulkan_give_up();
+        }
+        vulkan_failures = 11;
+        return;
+    }
+    VkSurfaceKHR surface = vulkan_surface(vk_get);
+    if (surface == VK_NULL_HANDLE) {
+        vulkan_failures++;
+        return;
+    }
+    int w, h;
+    output_size(&w, &h);
+    int made = vk_present_surface(presenter, surface, w, h);
+    if (made == 0) {
+        SDL_Log("play: frame %u: a new Vulkan surface, %d x %d", frame_now, w, h);
+        vulkan_lost = 0;
+        vulkan_failures = 0;
+    } else {
+        /* (1: nothing to draw on yet, a window of no size) */
+        vulkan_failures += made < 0;
+        vk_present_surface_gone(presenter);
+    }
+}
+
 static void draw(void)
 {
+    /* (the presenter is made and unmade on this thread only: it can be asked for here) */
+    if (presenter != NULL && vulkan_lose_frame != 0 && frame_now == vulkan_lose_frame) {
+        SDL_LockMutex(vk_lock);
+        vulkan_release("--vulkan-lose");
+        SDL_UnlockMutex(vk_lock);
+    }
+    if (presenter != NULL && vulkan_lost) {
+        SDL_LockMutex(vk_lock);
+        vulkan_renew();
+        SDL_UnlockMutex(vk_lock);
+    }
     if (presenter != NULL) {
-        draw_vulkan();
+        if (!vulkan_lost) {
+            draw_vulkan();
+        }
         return;
     }
     if (shown_frame != drawn_frame) {
@@ -1210,6 +1547,12 @@ static uint32_t pad_keys(void)
 static void screenshot(void)
 {
     static uint32_t copy[sizeof(shown) / sizeof(shown[0])];
+    if (presenter != NULL) {
+        /* through Vulkan the picture is the window's: its next frame is saved (window-N.png) */
+        opt.window_shot = frame_now + 1;
+        SDL_Log("play: screenshot of the window at frame %u (window-%05u.png)", frame_now + 1, frame_now + 1);
+        return;
+    }
     SDL_LockMutex(shown_lock);
     memcpy(copy, shown, sizeof(copy));
     SDL_UnlockMutex(shown_lock);
@@ -1250,6 +1593,14 @@ static void handle(const SDL_Event *e)
             save_flush("the app went to the background");
             autosave_leaving();
             wifi_keep();
+            vulkan_marker_set(0);
+            if (e->type == SDL_APP_WILLENTERBACKGROUND && presenter != NULL) {
+                /* Android takes the window from under the surface: let go of first (after
+                   the frame being drawn, if one is) */
+                SDL_LockMutex(vk_lock);
+                vulkan_release("the app leaves the screen");
+                SDL_UnlockMutex(vk_lock);
+            }
             break;
         case SDL_KEYDOWN:
             if (e->key.keysym.sym == SDLK_TAB) {
@@ -1426,8 +1777,6 @@ static void put_together(const uint32_t *upper, const uint32_t *lower)
  * on it (scene_file.h): scene-N.bin, the scene as the geometry engine left it. Without the
  * option, at a larger size, tiles-N.bin: the 3D picture alone as the software tiles drew it,
  * which a renderer's picture of the same frame is compared with. */
-static int scene_dump;
-
 /* The scene engine's thread hands a scene over: kept until the frame it belongs to is put out. */
 static void scene_keep(const Scene *scene, void *user)
 {
@@ -1437,6 +1786,24 @@ static void scene_keep(const Scene *scene, void *user)
     scene_free(scene_latest);
     scene_latest = copy;
     SDL_UnlockMutex(scene_lock);
+}
+
+/* The engines set up for how the picture is made: the scene handed out whole (for the dump
+ * or for the GPU) in place of the tiles, or the tiles at the picture's size. Before the run,
+ * and again at its first frame if Vulkan turns out not to be there (open_window). */
+static void picture_setup(void)
+{
+    picture_scale = opt.resolution;
+    if (scene_dump || opt.vulkan) {
+        if (scene_lock == NULL) {
+            scene_lock = SDL_CreateMutex();
+        }
+        picture_scale = 1;
+        tall3d_enable_scene(opt.tall, scene_keep, NULL);
+    } else {
+        tall3d_enable(opt.tall, picture_scale);
+    }
+    mix2d_enable(picture_scale > 1 || opt.vulkan);
 }
 
 /* On the drawing thread, as a frame is put out (under shown_lock): the scene that arrived
@@ -1501,8 +1868,6 @@ static void scene_shot(uint32_t frame)
 
 /* --picture-hash FILE: a line for each frame's picture as the port shows it (the tall view
  * and the larger scene included, which the decomp's own hashes, --hash, do not cover) */
-static FILE *picture_hashes;
-
 static void on_frame_output(uint32_t frame, const uint32_t *upper, const uint32_t *lower)
 {
     SDL_LockMutex(shown_lock);
@@ -1660,7 +2025,16 @@ static void on_frame(uint32_t frame)
             wifi_keep();
             SDL_Log("play: %lu drawings of objects above the game's screen", game_hooks_drawn_above());
             SDL_Log("play: Mr. Resetti kept away %lu times", game_hooks_resetti_kept_away());
+            if (opt.vulkan) {
+                unsigned long left, drawn, lines, kept, wrong;
+                tall3d_lean_counts(&left, &drawn);
+                gpu2d_main_probe_counts(&lines, &kept, &wrong);
+                SDL_Log("play: the game's own 3D picture: %lu left undrawn, %lu drawn; the 2D mix: %lu lines, %lu kept from the "
+                        "frame before%s",
+                        left, drawn, lines, kept, getenv("PORT_MIX_CHECK") != NULL ? (wrong ? ", SOME OF THEM WRONG" : ", all of them right") : "");
+            }
             SDL_Log("play: ended at frame %u", frame);
+            vulkan_marker_set(0);
             /* the drawing thread's last frames, for those who asked for a record of them */
             if (picture_hashes != NULL || (opt.hash != NULL && *opt.hash)) {
                 render_finish();
@@ -1792,6 +2166,9 @@ int main(int argc, char **argv)
             wifi_dns = argv[++i];
         } else if (strcmp(a, "--vulkan") == 0) {
             vulkan = 1;
+            vulkan_explicit = 1;
+        } else if (strcmp(a, "--vulkan-lose") == 0 && more) {
+            vulkan_lose_frame = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--no-vulkan") == 0) {
             vulkan = 0;
         } else if (strcmp(a, "--two-screens") == 0) {
@@ -1823,6 +2200,10 @@ int main(int argc, char **argv)
     mkdir(opt.data, 0700);
     log_open();
     settings_load();
+    /* before any other thread is started: they are kept to the same cores */
+    if (fast_cores_setting && getenv("PORT_ALL_CORES") == NULL && cores_prefer_fast(cores_note, sizeof(cores_note)) > 0) {
+        SDL_Log("play: the threads are kept to the fast cores, %s", cores_note);
+    }
     if (full_touch >= 0) {
         opt.full_touch = full_touch;
     }
@@ -1945,16 +2326,7 @@ int main(int argc, char **argv)
     SDL_Log("play: keys: arrows = +Control Pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = START,");
     SDL_Log("      Shift or Backspace = SELECT, mouse on the lower screen = touch, Tab = fast forward, F12 = screenshot");
 
-    picture_scale = opt.resolution;
-    if (scene_dump || opt.vulkan) {
-        /* the scene handed out whole, for the dump or for the GPU, in place of the tiles */
-        scene_lock = SDL_CreateMutex();
-        picture_scale = 1;
-        tall3d_enable_scene(opt.tall, scene_keep, NULL);
-    } else {
-        tall3d_enable(opt.tall, picture_scale);
-    }
-    mix2d_enable(picture_scale > 1 || opt.vulkan);
+    picture_setup();
     shown_lock = SDL_CreateMutex();
     counter_hz = (double) SDL_GetPerformanceFrequency();
     ticks_per_frame = counter_hz * DS_CYCLES_PER_FRAME / DS_BUS_HZ;

@@ -29,6 +29,8 @@ typedef struct PresentFrame {
     const PresentVertex *ui;   /* the buttons, as triangles */
     int ui_count;
     int capture;               /* keep the window's picture for vk_present_pixels */
+    int scene_percent;         /* the scene's picture against the size its screens have in the
+                                  window: 100, or less for a GPU that is not fast enough (0: 100) */
 } PresentFrame;
 
 typedef struct VkPresenter VkPresenter;
@@ -39,10 +41,18 @@ VkPresenter *vk_present_create(const VkApi *api, VkInstance instance, VkSurfaceK
 void vk_present_destroy(VkPresenter *p);
 
 /* A frame onto the window, whose size is given each time. 0; 1 when the surface is gone
- * (the app left the screen: give a new one with vk_present_surface); -1 on another failure. */
+ * (the app left the screen); -1 on another failure. After either the window's owner lets go
+ * of the surface (vk_present_surface_gone) and gives a new one (vk_present_surface): what
+ * failed is not always told apart by the system. */
 int vk_present_frame(VkPresenter *p, const PresentFrame *frame, int width, int height);
 
-/* A new surface in place of a lost one (the old one is destroyed here). */
+/* The surface is let go of, with the swapchain on it: before the window under it goes (an
+ * Android app leaving the screen), and before a new surface is made for the same window,
+ * which takes one surface at a time. Frames are refused (1) until there is a new one. */
+void vk_present_surface_gone(VkPresenter *p);
+
+/* A new surface in place of the old one (which is destroyed here if it still is there).
+ * 0; 1 or -1 as vk_present_frame when nothing can be drawn on it. */
 int vk_present_surface(VkPresenter *p, VkSurfaceKHR surface, int width, int height);
 
 /* The window's picture of the last frame given with `capture`: rows from the top, four bytes

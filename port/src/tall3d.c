@@ -276,6 +276,8 @@ static void note(uint32_t cmd, uint32_t value)
     f->count++;
 }
 
+static int scene_given; /* (tall3d_lean, below) */
+
 static void *tile_thread(void *arg)
 {
     Tile *t = arg;
@@ -306,6 +308,7 @@ static void *tile_thread(void *arg)
             t->engine->scene(list, &scene);
             scene.tall = tall;
             scene_sink(&scene, scene_user);
+            scene_given = 1;
         } else if (list >= 0) {
             t->engine->render(list);
         }
@@ -436,11 +439,72 @@ void gpu3d_vblank(void)
     gpu3d_main_vblank();
 }
 
+/* tall3d_lean: the main engine's own picture is left undrawn while nothing shows it. That is
+ * when the scene goes to a GPU and the lower screen shows the 3D layer (then the GPU's
+ * picture is what is seen: tall3d_scene_state), and the game is not capturing the display
+ * (which reads the engine's lines). A capture is rare and announced by its register; the
+ * engine's picture is drawn for a second after one was seen, to be there for the next. */
+static int lean;
+static unsigned lean_hold;
+static unsigned long lean_left, lean_drawn;
+static int main_list = -1;  /* the main engine's list left undrawn, or -1: its picture is the newest */
+static int frame_unseen;    /* the frame being put together is one whose main picture nobody sees */
+static int scene_given;     /* a scene has been handed out: there is something to see in its place */
+
+void tall3d_lean(int on)
+{
+    lean = on != 0;
+}
+
+void tall3d_lean_counts(unsigned long *left, unsigned long *drawn)
+{
+    *left = lean_left;
+    *drawn = lean_drawn;
+}
+
+static int main_picture_needed(void)
+{
+    if (!lean || scene_sink == NULL || !scene_given) {
+        return 1;
+    }
+    uint32_t dispcnt = io_view_reg(0x000);
+    int shown = !(io_view_reg(0x304) & 0x8000) && ((dispcnt >> 16) & 3) == 1 && !(dispcnt & 0x80) && (dispcnt & 0x008) &&
+                (dispcnt & 0x100);
+    return !shown || lean_hold > 0 || (io_view_reg(0x064) & 0x80000000u) != 0;
+}
+
+/* On the drawing thread, before the first line of a frame (gpu2d_main.c): whether this
+ * frame's main picture is one nobody sees. If it is seen after all and the engine's picture
+ * was left undrawn at the swap (what the registers said then is not what they say now), it
+ * is drawn now. */
+int tall3d_frame_unseen(void)
+{
+    if (io_view_reg(0x064) & 0x80000000u) {
+        lean_hold = 60;
+    } else if (lean_hold > 0) {
+        lean_hold--;
+    }
+    frame_unseen = !main_picture_needed();
+    if (!frame_unseen && main_list >= 0) {
+        gpu3d_main_render(main_list);
+        main_list = -1;
+        lean_drawn++;
+    }
+    return frame_unseen;
+}
+
 /* On the drawing thread (or at once, without one): the main engine's list, and the tiles of
  * the frame that goes with it, drawn by their threads while this one waits. */
 void gpu3d_render(int list)
 {
-    gpu3d_main_render(list);
+    if (main_picture_needed()) {
+        gpu3d_main_render(list);
+        main_list = -1;
+        lean_drawn++;
+    } else {
+        main_list = list;
+        lean_left++;
+    }
     if (tiles > 0 && list >= 0 && list < GPU3D_LISTS) {
         pthread_mutex_lock(&lock);
         uint32_t n = frame_of_list[list];
@@ -496,7 +560,8 @@ int tall3d_scene_state(int *over_upper, uint32_t *brightness)
     int windowed = (dispcnt & 0xe000) && !((windows >> 16) & 1);
     *over_upper = tall && !windowed;
     *brightness = io_view_reg(0x06c);
-    return shown && scene_sink != NULL;
+    /* (a frame put together as one whose main picture nobody sees has only the scene to show) */
+    return (shown || frame_unseen) && scene_sink != NULL;
 }
 
 int tall3d_picture(const uint32_t **upper, const uint32_t **lower, int *stride, uint32_t *brightness)

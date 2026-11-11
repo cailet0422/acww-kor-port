@@ -72,12 +72,13 @@ What the port does now and the order the rest goes in. The facts about the decom
    the DS's fetching of data ahead (without it the game's surround is never heard) and the
    DS's output rate; converted to the device's rate and kept in step with its clock
    (`port/src/ds_audio_port.c`, `sound_sdl.c`). To do: a volume setting.
-4. **A Vulkan renderer** ([renderer.md](renderer.md)). Done, as an experimental option
-   (`--vulkan`): the 3D scene handed out of the engine as polygons and drawn by the GPU at
-   the window's own size, four samples a pixel, by the DS's rules; the 2D layers mixed with
-   it and the buttons drawn over; the software rasteriser stays the reference, and the game's
-   frames are untouched. Checked on a software Vulkan driver. To do: a phone; the settings
-   for samples and for a smaller size; the DS features Wild World's scenes have not needed.
+4. **A Vulkan renderer** ([renderer.md](renderer.md)). Done, and on by default where the
+   device can: the 3D scene handed out of the engine as polygons and drawn by the GPU at
+   the window's own size (or a part of it), four samples a pixel, by the DS's rules; the 2D
+   layers mixed with it and the buttons drawn over; on its own thread, with what the
+   software engines would draw unseen left out. The software rasteriser stays the reference
+   and the way without Vulkan. To do: a setting for samples; the DS features Wild World's
+   scenes have not needed.
 5. **Playing together.**
    - port players with each other ([multiplayer.md](multiplayer.md)): done as far as it
      could be checked here. The decomp's simulated local wireless is carried over the network
