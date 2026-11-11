@@ -3,7 +3,11 @@
 #define ACWW_PORT_FRONT_H
 
 #include <SDL.h>
+#include <stddef.h>
 #include <stdint.h>
+
+/* sound_sdl.c: the sound's device and how it has gone, as a line of text */
+void port_sound_status(char *text, size_t size);
 
 #define FRONT_SCREEN_W 256
 #define FRONT_SCREEN_H 192

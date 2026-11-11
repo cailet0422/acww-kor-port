@@ -50,7 +50,11 @@ APK에는 `armeabi-v7a`와 `arm64-v8a`가 들어갑니다. `-PsdlDir=/SDL/경로
 이미지용으로 빌드합니다. release APK는 당분간 debug 키로 서명됩니다.
 
 휴대폰에서 실행을 시작하지 못하면 앱이 로그의 끝부분을 보여 줍니다. 전체 로그는 앱 파일의
-`log.txt`입니다(`log-1.txt`는 그 전 실행).
+`log.txt`입니다(`log-1.txt`는 그 전 실행). 설정 화면에는 실행 상태(속도, 소리 장치)와 지난 실행이
+오류로 끝났을 때의 기록이 나오고, "로그 내보내기"는 이 모두를 텍스트 파일 하나로 저장합니다. 오류
+기록의 위치는 `libmain.so+0xOFFSET` 꼴이며, 그 빌드의 스트립하지 않은 라이브러리
+(`android/app/build/intermediates/cxx/`)와 `llvm-addr2line -e libmain.so OFFSET`으로 함수와 줄을
+찾을 수 있습니다.
 
 ## 테스트
 
@@ -80,7 +84,7 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/src/touch.c` | 터치 버튼과 화면 배치 |
 | `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_tile.c` | 이어진 화면과 더 큰 그림: 디컴프 3D 엔진의 복제본(docs/tall-view.ko.md, docs/renderer.ko.md) |
 | `port/src/mix2d.c`, `gpu2d_main.c`, `gpu2d_probe.c` | 큰 3D 그림을 2D 레이어와 섞기: 디컴프 2D 엔진의 복제본 |
-| `port/src/sound_sdl.c` | 소리: 디컴프의 `sound.c`에 SDL 오디오 장치를 붙임 |
+| `port/src/sound_sdl.c` | 소리: 디컴프의 `sound.c`에 SDL 오디오 장치를 붙이고, 장치의 재생 속도로 변환해 장치 시계에 맞춤 |
 | `port/src/game_hooks.c`, `run_port.c` | 게임 코드에 거는 훅: 화면 위쪽 그리기, 도루묵씨 |
 | `port/src/rom_prep.c` | ROM 확인과 모듈 분리 |
 | `port/src/memory_based.c` | DS 메모리를 시스템이 내주는 위치에 두고 기준 주소를 더함(docs/64bit.ko.md) |

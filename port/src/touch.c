@@ -603,13 +603,26 @@ static SDL_Color shade(int pressed, int over)
     return c;
 }
 
-static void outline(SDL_Renderer *r, SDL_Rect b, int selected)
+/* A rectangle's edge, `thick` pixels of it outside the rectangle, as four filled bars: the
+ * arranging is the only thing here with outlines, and it draws them with what everything
+ * else is drawn with, not with the renderer's lines, which no other drawing would have tried
+ * on a phone's graphics driver. */
+static void frame_rect(SDL_Renderer *r, SDL_Rect b, int thick)
 {
+    SDL_Rect bars[4] = {{b.x - thick, b.y - thick, b.w + 2 * thick, thick},
+                        {b.x - thick, b.y + b.h, b.w + 2 * thick, thick},
+                        {b.x - thick, b.y, thick, b.h},
+                        {b.x + b.w, b.y, thick, b.h}};
+    SDL_RenderFillRects(r, bars, 4);
+}
+
+static void outline(SDL_Renderer *r, const Layout *l, SDL_Rect b, int selected)
+{
+    int unit = (l->w < l->h ? l->w : l->h) / 360; /* a line's width: 1 on a small window, 3 on a phone */
+    unit = unit < 1 ? 1 : unit;
+    SDL_Rect around = {b.x - 3 * unit, b.y - 3 * unit, b.w + 6 * unit, b.h + 6 * unit};
     SDL_SetRenderDrawColor(r, 255, selected ? 220 : 255, selected ? 60 : 255, (Uint8) (selected ? 255 : 130));
-    for (int k = 0; k < (selected ? 4 : 2); k++) {
-        SDL_Rect o = {b.x - 6 - k, b.y - 6 - k, b.w + 12 + 2 * k, b.h + 12 + 2 * k};
-        SDL_RenderDrawRect(r, &o);
-    }
+    frame_rect(r, around, selected ? 2 * unit : unit);
 }
 
 /* The arranging: every item framed, the one last touched in yellow, and the bar: smaller,
@@ -617,7 +630,7 @@ static void outline(SDL_Renderer *r, SDL_Rect b, int selected)
 static void draw_arranging(SDL_Renderer *r, const Layout *l)
 {
     for (int item = 0; item < ITEM_COUNT; item++) {
-        outline(r, item_bounds(l, item), item == arrange.selected);
+        outline(r, l, item_bounds(l, item), item == arrange.selected);
     }
     SDL_Rect bar[BAR_COUNT];
     bar_rects(l, bar);
@@ -627,7 +640,7 @@ static void draw_arranging(SDL_Renderer *r, const Layout *l)
         SDL_SetRenderDrawColor(r, 20, 20, 20, 200);
         SDL_RenderFillRect(r, &bar[i]);
         SDL_SetRenderDrawColor(r, 255, 255, 255, (Uint8) (dim ? 90 : 255));
-        SDL_RenderDrawRect(r, &bar[i]);
+        frame_rect(r, bar[i], bar[i].h / 40 > 0 ? bar[i].h / 40 : 1);
         int cx = bar[i].x + bar[i].w / 2, cy = bar[i].y + bar[i].h / 2, u = bar[i].h;
         white.a = (Uint8) (dim ? 90 : 255);
         if (i == BAR_SMALLER || i == BAR_LARGER) {

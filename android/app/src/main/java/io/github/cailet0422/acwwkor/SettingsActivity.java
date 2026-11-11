@@ -37,6 +37,7 @@ import java.util.List;
 public class SettingsActivity extends Activity {
     private static final int EXPORT_SAVE = 1;
     private static final int IMPORT_SAVE = 2;
+    private static final int EXPORT_LOG = 3;
 
     private File settingsFile() {
         return new File(getFilesDir(), "settings.txt");
@@ -104,10 +105,32 @@ public class SettingsActivity extends Activity {
                 .setNegativeButton(android.R.string.cancel, null)
                 .show()));
 
+        column.addView(button(R.string.settings_log_export, () -> {
+            Intent intent = new Intent(Intent.ACTION_CREATE_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("text/plain");
+            intent.putExtra(Intent.EXTRA_TITLE, "acww-kor-port-log.txt");
+            startActivityForResult(intent, EXPORT_LOG);
+        }));
+
         TextView note = new TextView(this);
         note.setText(R.string.settings_note);
         note.setPadding(0, pad, 0, 0);
         column.addView(note);
+
+        /* how the run is going (front_sdl.c, status_write): something to read out in a report */
+        String status = status();
+        String crash = crashLines();
+        if (!crash.isEmpty()) {
+            status = status + "\n\n" + getString(R.string.settings_crashed) + "\n" + crash;
+        }
+        if (!status.isEmpty()) {
+            TextView state = new TextView(this);
+            state.setText(getString(R.string.settings_status) + "\n" + status);
+            state.setTextIsSelectable(true);
+            state.setPadding(0, pad, 0, 0);
+            column.addView(state);
+        }
 
         ScrollView scroll = new ScrollView(this);
         scroll.addView(column);
@@ -157,6 +180,60 @@ public class SettingsActivity extends Activity {
 
     private void toast(int text) {
         Toast.makeText(this, text, Toast.LENGTH_LONG).show();
+    }
+
+    private String status() {
+        return text("status.txt", null, 40);
+    }
+
+    /** How the run before this one ended, if it crashed: the game's own lines about it
+     *  (native_os_portable.c) and an exception of the app's Java side (App.java). */
+    private String crashLines() {
+        String lines = text("log-1.txt", "crash:", 24);
+        /* an exception of the last day: the file stays until the next one replaces it */
+        File javaFile = new File(getFilesDir(), App.CRASH_FILE);
+        boolean recent = System.currentTimeMillis() - javaFile.lastModified() < 24L * 60 * 60 * 1000;
+        String java = recent ? text(App.CRASH_FILE, null, 12) : "";
+        return (lines + (java.isEmpty() ? "" : "\n" + java)).trim();
+    }
+
+    /** A file of the app's as text: its lines starting with `only`, if given, and no more than
+     *  `most` of them, the last ones. */
+    private String text(String name, String only, int most) {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader in = new BufferedReader(new FileReader(new File(getFilesDir(), name)))) {
+            for (String line; (line = in.readLine()) != null; ) {
+                if (only == null || line.startsWith(only)) {
+                    lines.add(line);
+                }
+            }
+        } catch (IOException e) {
+            /* none yet */
+        }
+        StringBuilder text = new StringBuilder();
+        for (int i = Math.max(0, lines.size() - most); i < lines.size(); i++) {
+            text.append(lines.get(i)).append('\n');
+        }
+        return text.toString().trim();
+    }
+
+    /** Everything the app has written about its runs, as one text file for a report. */
+    private void exportLog(Uri uri) {
+        try (OutputStream out = getContentResolver().openOutputStream(uri)) {
+            for (String name : new String[] {"status.txt", App.CRASH_FILE, "log.txt", "log-1.txt"}) {
+                File file = new File(getFilesDir(), name);
+                out.write(("===== " + name + " =====\n").getBytes("UTF-8"));
+                if (file.isFile()) {
+                    try (InputStream in = new FileInputStream(file)) {
+                        copy(in, out);
+                    }
+                }
+                out.write('\n');
+            }
+            toast(R.string.settings_log_exported);
+        } catch (IOException | SecurityException | NullPointerException e) {
+            toast(R.string.settings_failed);
+        }
     }
 
     private List<String> lines() {
@@ -226,7 +303,9 @@ public class SettingsActivity extends Activity {
             return;
         }
         Uri uri = data.getData();
-        if (request == EXPORT_SAVE) {
+        if (request == EXPORT_LOG) {
+            exportLog(uri);
+        } else if (request == EXPORT_SAVE) {
             try (InputStream in = new FileInputStream(saveFile());
                  OutputStream out = getContentResolver().openOutputStream(uri)) {
                 copy(in, out);

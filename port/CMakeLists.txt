@@ -136,7 +136,7 @@ set_source_files_properties(src/native_os_portable.c PROPERTIES COMPILE_OPTIONS 
 target_include_directories(acww_runtime PRIVATE compat)
 set(RUN_C_OPTIONS -std=c11 -O2 -fwrapv -fno-strict-aliasing -w ${RUNTIME_INCLUDES})
 find_package(Threads REQUIRED)
-target_link_libraries(acww_runtime PUBLIC Threads::Threads m)
+target_link_libraries(acww_runtime PUBLIC Threads::Threads m ${CMAKE_DL_LIBS})
 
 # The ROM check and split, which the tests also run without a window.
 add_library(acww_rom STATIC src/rom_prep.c src/sha1.c)

@@ -341,11 +341,35 @@ static void settings_save(void)
     }
 }
 
+/* How the run is going, in DATA/status.txt for the settings screen to show: the speed over
+ * the last seconds (pace) and the sound's device (sound_sdl.c). What a player can read out
+ * when something looks or sounds wrong on a phone. */
+static double status_fps, status_busy;
+
+static void status_write(void)
+{
+    char path[1200], sound[160];
+    snprintf(path, sizeof(path), "%s/status.txt", opt.data);
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        return;
+    }
+    port_sound_status(sound, sizeof(sound));
+    fprintf(f, "%s, %d-bit\n", PORT_VERSION, (int) (sizeof(void *) * 8));
+    if (status_fps > 0) {
+        fprintf(f, "%.1f fps (DS %.1f), busy %.0f%%\n", status_fps, DS_BUS_HZ / DS_CYCLES_PER_FRAME, status_busy * 100.0);
+    }
+    fprintf(f, "sound: %s\n", opt.sound ? sound : "off");
+    fprintf(f, "picture: %dx, %s\n", picture_scale, opt.tall ? "tall" : "two screens");
+    fclose(f);
+}
+
 /* The settings screen, where the platform has one: on Android, SettingsActivity, asked for
  * through MainActivity.openSettings. It writes the settings' file, which is read again when
  * the game comes back to the front (settings_apply). */
 static void open_settings(void)
 {
+    status_write();
 #ifdef __ANDROID__
     JNIEnv *env = SDL_AndroidGetJNIEnv();
     jobject activity = SDL_AndroidGetActivity();
@@ -361,10 +385,9 @@ static void open_settings(void)
 #endif
 }
 
-static void settings_apply(void)
+/* The settings screen's request to arrange the buttons, if there is one. */
+static void arrange_take(void)
 {
-    settings_load();
-    game_hooks_resetti(opt.resetti);
     if (arrange_asked) {
         /* asked for on the settings screen: the buttons shown, and their arranging open */
         arrange_asked = 0;
@@ -374,7 +397,48 @@ static void settings_apply(void)
     }
 }
 
+static void settings_apply(void)
+{
+    settings_load();
+    game_hooks_resetti(opt.resetti);
+    arrange_take();
+}
+
 /* The window -------------------------------------------------------------------------------- */
+
+/* the picture enlarged by a whole number (enlarged) */
+static SDL_Texture *sharp;
+static int sharp_factor;
+
+/* The renderer and the picture's texture. Also after the graphics device was lost (a phone
+ * may take it while another screen is in front: SDL_RENDER_DEVICE_RESET), when everything
+ * made with the old one is gone. */
+static int open_renderer(void)
+{
+    if (sharp != NULL) {
+        SDL_DestroyTexture(sharp);
+        sharp = NULL;
+    }
+    if (screens != NULL) {
+        SDL_DestroyTexture(screens);
+        screens = NULL;
+    }
+    if (renderer != NULL) {
+        SDL_DestroyRenderer(renderer);
+    }
+    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+    if (renderer == NULL) {
+        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
+    }
+    screens = renderer != NULL ? SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING,
+                                                   PICTURE_W, PICTURE_H)
+                               : NULL;
+    if (screens == NULL) {
+        return -1;
+    }
+    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
+    return 0;
+}
 
 static int open_window(void)
 {
@@ -393,18 +457,10 @@ static int open_window(void)
     window = SDL_CreateWindow("acww-kor-port", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                               opt.width > 0 ? opt.width : FRONT_SCREEN_W * opt.scale,
                               opt.height > 0 ? opt.height : 2 * FRONT_SCREEN_H * opt.scale, flags);
-    renderer = window != NULL ? SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED) : NULL;
-    if (renderer == NULL && window != NULL) {
-        renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
-    }
-    screens = renderer != NULL ? SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING,
-                                                   PICTURE_W, PICTURE_H)
-                               : NULL;
-    if (screens == NULL) {
+    if (window == NULL || open_renderer() != 0) {
         tell("acww-kor", SDL_GetError());
         return -1;
     }
-    SDL_SetRenderDrawBlendMode(renderer, SDL_BLENDMODE_BLEND);
     return 0;
 }
 
@@ -422,8 +478,6 @@ static void update_layout(void)
  * the picture is first enlarged by a whole number with its pixels kept square (into `sharp`),
  * and that is taken to the window's size with the linear filter, which then only softens the
  * pixels' edges. */
-static SDL_Texture *sharp;
-static int sharp_factor;
 
 static SDL_Texture *enlarged(const SDL_Rect *to)
 {
@@ -688,6 +742,19 @@ static void handle(const SDL_Event *e)
         case SDL_APP_DIDENTERFOREGROUND:
             settings_apply(); /* the settings screen may have changed them */
             break;
+        case SDL_RENDER_DEVICE_RESET:
+            SDL_Log("play: the graphics device was lost; a new renderer");
+            if (open_renderer() != 0) {
+                SDL_Log("play: no renderer (%s)", SDL_GetError());
+                quit_asked = 1;
+            }
+            break;
+        case SDL_RENDER_TARGETS_RESET:
+            if (sharp != NULL) { /* made again when next needed */
+                SDL_DestroyTexture(sharp);
+                sharp = NULL;
+            }
+            break;
         case SDL_APP_WILLENTERBACKGROUND:
         case SDL_APP_TERMINATING:
             save_flush("the app went to the background");
@@ -919,8 +986,14 @@ static void pace(void)
     if (seconds >= 5.0) {
         double fps = stats_frames / seconds;
         double busy = (double) busy_ticks / (double) (end - stats_start);
-        SDL_Log("play: frame %u, %.2f fps (the DS: %.2f), emulation busy %.0f%% of the time%s", frame_now, fps,
-                DS_BUS_HZ / DS_CYCLES_PER_FRAME, busy * 100.0, fast ? ", fast forward" : "");
+        char sound[160];
+        port_sound_status(sound, sizeof(sound));
+        SDL_Log("play: frame %u, %.2f fps (the DS: %.2f), emulation busy %.0f%% of the time%s; sound: %s", frame_now, fps,
+                DS_BUS_HZ / DS_CYCLES_PER_FRAME, busy * 100.0, fast ? ", fast forward" : "", opt.sound ? sound : "off");
+        if (!fast) {
+            status_fps = fps;
+            status_busy = busy;
+        }
         char title[128];
         snprintf(title, sizeof(title), "acww-kor-port - %.1f fps", fps);
         SDL_SetWindowTitle(window, title);
@@ -945,6 +1018,7 @@ static void on_frame(uint32_t frame)
         port_hooks_install();
         game_hooks_draw_above(opt.tall && !opt.no_above);
         game_hooks_resetti(opt.resetti);
+        arrange_take(); /* asked for just before the app was closed */
         frame_first = 0;
     }
     if (window == NULL) {

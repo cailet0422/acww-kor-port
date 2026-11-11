@@ -23,5 +23,9 @@
     <string name="settings_save_wrong">That file is not a save (a save is 256 KB).</string>
     <string name="settings_failed">That did not work.</string>
     <string name="settings_restart">Closing. Start the app again.</string>
+    <string name="settings_status">How it is running (include this in a report)</string>
+    <string name="settings_log_export">Export the log…</string>
+    <string name="settings_log_exported">Log exported.</string>
+    <string name="settings_crashed">The last run ended with an error:</string>
     <string name="settings_note">When arranging, drag the buttons, and make the one touched last smaller or larger with − and +. An imported save replaces the current one (kept as acww.sav.before-import) and closes the app.</string>
 </resources>
