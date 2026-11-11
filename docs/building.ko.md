@@ -89,6 +89,7 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/src/game_hooks.c`, `run_port.c` | 게임 코드에 거는 훅: 화면 위쪽 그리기, 도루묵씨 |
 | `port/src/autosave.c` | 포트의 자체 마을 저장(docs/autosave.ko.md) |
 | `port/src/netlink.c`, `relay.c`, `wm_port.c`, `link_proto.h` | 같이 하기: 무선을 네트워크로 실어 나르기와 방 중계 서버(docs/multiplayer.ko.md) |
+| `port/src/wifi_port.c`, `arm7_port.c` | 닌텐도 Wi-Fi 커넥션: 액세스 포인트에서 실제 네트워크로 나가는 게이트웨이와 본체 접속 설정, 게임의 Wi-Fi 설정에 필요한 본체 리셋(docs/multiplayer.ko.md) |
 | `port/src/rom_prep.c` | ROM 확인과 모듈 분리 |
 | `port/src/memory_based.c` | DS 메모리를 시스템이 내주는 위치에 두고 기준 주소를 더함(docs/64bit.ko.md) |
 | `port/src/native_os_portable.c` | 디컴프의 x86 전용 호스트 코드를 대신하는 코드 |

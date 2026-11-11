@@ -40,6 +40,8 @@ jobs:
         run: python3 port/tests/test_rom_prep.py build/acww-rom-prep
       - name: The network link and the relay, three consoles
         run: build/acww-netlink-test
+      - name: The Wi-Fi Connection gateway against servers on the loopback
+        run: build/acww-wifi-test
       - name: Starts and refuses a missing ROM
         run: |
           set +e

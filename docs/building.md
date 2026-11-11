@@ -92,6 +92,7 @@ how to run it for ARM under qemu-user.
 | `port/src/game_hooks.c`, `run_port.c` | hooks into the game's code: drawing above the screen, Mr. Resetti |
 | `port/src/autosave.c` | the port's own save of the town (docs/autosave.md) |
 | `port/src/netlink.c`, `relay.c`, `wm_port.c`, `link_proto.h` | playing together: the wireless carried over the network, and the relay of rooms (docs/multiplayer.md) |
+| `port/src/wifi_port.c`, `arm7_port.c` | Nintendo Wi-Fi Connection: the access point's gateway to the real network and the console's connection settings; the console's reset, which the game's Wi-Fi settings need (docs/multiplayer.md) |
 | `port/src/rom_prep.c` | the ROM check and the split into modules |
 | `port/src/memory_based.c` | the DS's memory where the system has room, with a base added (docs/64bit.md) |
 | `port/src/native_os_portable.c` | stand-ins for the decomp's x86-only host code |

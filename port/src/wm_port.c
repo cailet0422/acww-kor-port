@@ -4,19 +4,54 @@
  *
  * wm.c reads and writes its link with read() and write() and nothing else with them; here
  * those two names are the port's functions, which take a console of the room for the file
- * descriptor. The headless test program keeps the decomp's file.
+ * descriptor. Its start is wrapped too, for the console's address. The headless test program
+ * keeps the decomp's file.
  */
+#include <stdint.h>
 #include <unistd.h>
 
 #include "netlink.h"
 
 #define read netlink_read
 #define write netlink_write
+#define wm_init wm_init_decomp
+
+int wm_init_decomp(uint8_t *nvram);
 
 #include "wm.c"
 
 #undef read
 #undef write
+#undef wm_init
+
+#include "wifi_port.h"
+
+/* The model's own start, then the console's address if the front end has one for it (for
+ * Wi-Fi Connection, where every console needs its own: wifi_port.h). The model's is a fixed
+ * address with the console's number in a room, which is right for a room. */
+int wm_init(uint8_t *nvram)
+{
+    uint8_t mac[6];
+    int on = wm_init_decomp(nvram);
+    if (on && !wm.linked && wifi_port_mac(mac)) {
+        memcpy(wm.mac, mac, 6);
+        for (int i = 0; i < 6; i++) {
+            wr8(SHARED_MAC_ADDRESS + (uint32_t) i, wm.mac[i]);
+            nvram[0x36 + i] = wm.mac[i];
+        }
+    }
+    return on;
+}
+
+/* The console's reset (arm7_port.c): the wireless as at the start. A console in a room keeps
+ * its place there, and the model as it is: the game resets at its title, with the wireless
+ * not in use. */
+void wm_port_restart(uint8_t *nvram)
+{
+    if (wm.on && !wm.linked) {
+        wm_init(nvram);
+    }
+}
 
 /* A console of the room went away without a word (its network did). What this console is
  * told is what wm.c takes for a disconnection (MSG_DISCONNECT, as its `receive` reads it):

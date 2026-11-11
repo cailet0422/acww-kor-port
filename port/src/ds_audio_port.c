@@ -149,3 +149,11 @@ void ds_audio_start(DsAudio *a, unsigned no)
     }
     ds_audio_start_decomp(a, no);
 }
+
+/* After the console's reset (arm7_port.c) the mixer is made anew, and its time with it: it
+ * goes on from the bus cycle the console is at, not from the start's. */
+void ds_audio_port_resume(DsAudio *a, uint64_t cycle)
+{
+    a->cycle = cycle;
+    a->frames = cycle * DS_AUDIO_RATE / DS_AUDIO_CLOCK;
+}

@@ -17,7 +17,7 @@
 > 게임 코드는 기기에서 이 ROM으로부터 읽어 오며, 이 저장소나 빌드에는 ROM의 내용이 전혀 들어 있지 않습니다.
 
 > [!WARNING]
-> **초기 단계입니다(0.9.0).** 포트에서 게임이 실행되고(휴대폰 포함), x86과 ARM, 32비트와 64비트 모두에서
+> **초기 단계입니다(0.10.0).** 포트에서 게임이 실행되고(휴대폰 포함), x86과 ARM, 32비트와 64비트 모두에서
 > 프레임이 디컴프의 것과 비트 단위로 같습니다([docs/64bit.ko.md](docs/64bit.ko.md)). 소리는
 > [docs/sound.ko.md](docs/sound.ko.md), 앞으로의 계획은 [로드맵](docs/roadmap.ko.md)을 참고하세요.
 
@@ -38,7 +38,8 @@ PC에서 실행하는 런타임을 갖고 있습니다. 모든 함수는 인터�
   게임의 2D 레이어를 섞습니다. 또는 소프트웨어로 장면을 2배·3배 크기로 그립니다(무거움)
   ([docs/renderer.ko.md](docs/renderer.ko.md)).
 - **같이 하기**(실험적): DS의 로컬 무선 통신을 포트끼리 네트워크로 잇습니다. 기기 하나가 방을 열거나 중계
-  서버를 씁니다([docs/multiplayer.ko.md](docs/multiplayer.ko.md)).
+  서버를 씁니다. 닌텐도 Wi-Fi 커넥션은 기기의 네트워크로 나가며, 지정한 DNS가 가리키는 서버에 접속합니다
+  ([docs/multiplayer.ko.md](docs/multiplayer.ko.md)).
 - **소리**: 런타임의 믹서 출력을 SDL 오디오 장치로 냅니다(`port/src/sound_sdl.c`. 디컴프의 출력 장치는
   Windows 전용).
 - **ROM 확인과 분리**를 기기에서 합니다(`port/src/rom_prep.c`). 디컴프의 `tools/extract.py`와

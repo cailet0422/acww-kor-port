@@ -52,6 +52,7 @@
 #include "tall3d_engine.h"
 #include "touch.h"
 #include "vk_present.h"
+#include "wifi_port.h"
 
 /* The DS's frame: 263 lines of 2130 bus cycles at 33,513,982 Hz, about 59.8261 a second. */
 #define DS_CYCLES_PER_FRAME (263.0 * 2130.0)
@@ -73,6 +74,9 @@ static struct {
     int link;            /* the wireless on, and carried to a room's other consoles (netlink.h) */
     char link_server[128], link_room[40];
     int link_port;
+    int wifi;            /* Nintendo Wi-Fi Connection through this machine's network (wifi_port.h) */
+    char wifi_dns[64];   /* the name server the console asks: how a private server is reached */
+    char wifi_mac[16];   /* the console's address for it, 12 hex digits, made once */
     int no_above;        /* the game's own choice of what to draw above its screen (--no-above) */
     const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
     int width, height;   /* the window's starting size (--size), else by --scale */
@@ -104,6 +108,9 @@ static void usage(void)
             "  --link-join HOST[:PORT]  join a room at a relay (acww-relay, or a machine that\n"
             "                  opened one); --link-room NAME says which room (default \"acww\")\n"
             "                  (\"link=1\", \"link_server=\" and \"link_room=\" in DATA/settings.txt keep it)\n"
+            "  --wifi, --no-wifi  Nintendo Wi-Fi Connection through this machine's network\n"
+            "  --wifi-dns ADDR  with it: the name server the console asks (a private server's DNS)\n"
+            "                  (\"wifi=1\" and \"wifi_dns=\" in DATA/settings.txt keep them)\n"
             "  --vulkan, --no-vulkan  the window drawn through Vulkan, the 3D scene at the window's\n"
             "                  own size and multisampled (experimental; \"vulkan=1\" in\n"
             "                  DATA/settings.txt keeps it)\n"
@@ -395,6 +402,77 @@ static void autosave_game_saved(void)
     autosave_taken = 1; /* a minute until the next */
 }
 
+/* Wi-Fi Connection (wifi_port.h, docs/multiplayer.md) -------------------------------------- */
+
+static void settings_save(void);
+static int wifi_active; /* Wi-Fi Connection is on in this run */
+
+/* The console's own things for it, kept in DATA: its address (made once, in the settings) and
+ * its connection settings, wifi.bin, which the game's library writes its user ID into. A
+ * server knows a console by the two: both stay with the save. */
+static uint8_t wifi_kept[WIFI_PORT_SETTINGS_SIZE];
+static int wifi_kept_valid;
+
+static void wifi_path(char *out, size_t size)
+{
+    snprintf(out, size, "%s/wifi.bin", opt.data);
+}
+
+static void wifi_start(void)
+{
+    uint8_t mac[6] = {0x00, 0x09, 0xbf, 0, 0, 0}; /* Nintendo's block, as a DS's is */
+    unsigned a = 0, b = 0, c = 0;
+    char path[PATH_SIZE + 16];
+    if (strlen(opt.wifi_mac) != 12 || sscanf(opt.wifi_mac + 6, "%2x%2x%2x", &a, &b, &c) != 3) {
+        /* this console's address, once: from the clock's ticks and the machine's counter */
+        uint64_t seed = SDL_GetPerformanceCounter() ^ ((uint64_t) time(NULL) << 20) ^ (uint64_t) (uintptr_t) &seed;
+        seed ^= seed >> 29;
+        seed *= 0x9e3779b97f4a7c15ull;
+        seed ^= seed >> 32;
+        a = (unsigned) (seed & 255), b = (unsigned) ((seed >> 8) & 255), c = (unsigned) ((seed >> 16) & 255);
+        snprintf(opt.wifi_mac, sizeof(opt.wifi_mac), "0009bf%02x%02x%02x", a, b, c);
+        settings_save();
+    }
+    mac[3] = (uint8_t) a, mac[4] = (uint8_t) b, mac[5] = (uint8_t) c;
+    wifi_path(path, sizeof(path));
+    FILE *f = fopen(path, "rb");
+    wifi_kept_valid = f != NULL && fread(wifi_kept, 1, sizeof(wifi_kept), f) == sizeof(wifi_kept);
+    if (f != NULL) {
+        fclose(f);
+    }
+    wifi_port_enable(opt.wifi_dns, mac, wifi_kept_valid ? wifi_kept : NULL, sizeof(wifi_kept));
+    SDL_Log("play: Wi-Fi Connection: the console %s, name server %s%s", opt.wifi_mac, opt.wifi_dns[0] ? opt.wifi_dns : "this machine's",
+            wifi_kept_valid ? ", its connection settings from wifi.bin" : "");
+}
+
+/* The connection settings written out when the game changed them. */
+static void wifi_keep(void)
+{
+    const uint8_t *now = wifi_active ? wifi_port_settings() : NULL;
+    char path[PATH_SIZE + 16], tmp[PATH_SIZE + 24];
+    if (now == NULL || opt.read_only || (wifi_kept_valid && memcmp(now, wifi_kept, sizeof(wifi_kept)) == 0)) {
+        return;
+    }
+    memcpy(wifi_kept, now, sizeof(wifi_kept));
+    wifi_kept_valid = 1;
+    wifi_path(path, sizeof(path));
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (f != NULL && fwrite(wifi_kept, 1, sizeof(wifi_kept), f) == sizeof(wifi_kept) && fclose(f) == 0 && rename(tmp, path) == 0) {
+        SDL_Log("play: frame %u: the console's connection settings kept (%s)", frame_now, path);
+    }
+}
+
+/* The console's reset (arm7_port.c), which the game does to start its Wi-Fi Connection
+ * settings and to come back from them. */
+void arm7_port_on_reset(void (*listener)(void));
+unsigned arm7_port_resets(void);
+
+static void console_reset(void)
+{
+    SDL_Log("play: frame %u: the console reset itself (the game's Wi-Fi settings start and end so)", frame_now);
+}
+
 /* At the start: with `load`, the autosave becomes the save the game loads (the save it
  * replaces is kept as SAVE.before-auto). */
 static void autosave_at_start(int load)
@@ -456,6 +534,14 @@ static void settings_load(void)
             vulkan_setting = v != 0;
         } else if (sscanf(line, "link=%d", &v) == 1) {
             opt.link = v != 0;
+        } else if (sscanf(line, "wifi=%d", &v) == 1) {
+            opt.wifi = v != 0;
+        } else if (strncmp(line, "wifi_dns=", 9) == 0) {
+            snprintf(opt.wifi_dns, sizeof(opt.wifi_dns), "%.63s", line + 9);
+            opt.wifi_dns[strcspn(opt.wifi_dns, "\r\n")] = 0;
+        } else if (strncmp(line, "wifi_mac=", 9) == 0) {
+            snprintf(opt.wifi_mac, sizeof(opt.wifi_mac), "%.12s", line + 9);
+            opt.wifi_mac[strcspn(opt.wifi_mac, "\r\n")] = 0;
         } else if (strncmp(line, "link_server=", 12) == 0) {
             snprintf(opt.link_server, sizeof(opt.link_server), "%.127s", line + 12);
             opt.link_server[strcspn(opt.link_server, "\r\n")] = 0;
@@ -490,6 +576,9 @@ static void settings_save(void)
         fprintf(f, "link=%d\n", opt.link);
         fprintf(f, "link_server=%s\n", opt.link_server);
         fprintf(f, "link_room=%s\n", opt.link_room);
+        fprintf(f, "wifi=%d\n", opt.wifi);
+        fprintf(f, "wifi_dns=%s\n", opt.wifi_dns);
+        fprintf(f, "wifi_mac=%s\n", opt.wifi_mac);
         fprintf(f, "tall=%d\n", tall_setting);
         fprintf(f, "sound=%d\n", opt.sound);
         fprintf(f, "resolution=%d\n", resolution_setting);
@@ -614,6 +703,11 @@ static void status_write(void)
         char link[320];
         netlink_status(link, sizeof(link));
         fprintf(f, "link: %s%s%s\n", link, link_failure[0] ? ": " : "", link_failure);
+    }
+    if (wifi_active) {
+        char wifi[320];
+        wifi_port_status(wifi, sizeof(wifi));
+        fprintf(f, "wifi: %s\n", wifi);
     }
     fprintf(f, "picture: %dx, %s, %s\n", picture_scale, opt.tall ? "tall" : "two screens",
             presenter != NULL ? vk_present_device(presenter) : "no Vulkan");
@@ -1155,6 +1249,7 @@ static void handle(const SDL_Event *e)
         case SDL_APP_TERMINATING:
             save_flush("the app went to the background");
             autosave_leaving();
+            wifi_keep();
             break;
         case SDL_KEYDOWN:
             if (e->key.keysym.sym == SDLK_TAB) {
@@ -1554,11 +1649,15 @@ static void on_frame(uint32_t frame)
         autosave_game_saved();
     }
     autosave_frame_step(frame);
+    if (frame % 120 == 0) {
+        wifi_keep();
+    }
 
     /* quitting: after the game's writes to the chip have settled (at most 3 seconds more) */
     if (quit_asked || (opt.stop_frame && frame >= opt.stop_frame)) {
         if (writes == save_writes_flushed || save_quiet_frames >= 30 || ++quit_wait > 180) {
             save_flush(quit_asked ? "quit" : "frame limit");
+            wifi_keep();
             SDL_Log("play: %lu drawings of objects above the game's screen", game_hooks_drawn_above());
             SDL_Log("play: Mr. Resetti kept away %lu times", game_hooks_resetti_kept_away());
             SDL_Log("play: ended at frame %u", frame);
@@ -1626,7 +1725,8 @@ int main(int argc, char **argv)
     const char *save = NULL, *rom = NULL;
     const char *audio_wav = NULL;
     int autosave = -1, load_autosave = 0, vulkan = -1, link = -1;
-    const char *link_server = NULL, *link_room = NULL;
+    const char *link_server = NULL, *link_room = NULL, *wifi_dns = NULL;
+    int wifi = -1;
     int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0, resolution = 0; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -1683,6 +1783,13 @@ int main(int argc, char **argv)
             opt.link_port = atoi(argv[++i]);
         } else if (strcmp(a, "--no-link") == 0) {
             link = 0;
+        } else if (strcmp(a, "--wifi") == 0) {
+            wifi = 1;
+        } else if (strcmp(a, "--no-wifi") == 0) {
+            wifi = 0;
+        } else if (strcmp(a, "--wifi-dns") == 0 && more) {
+            wifi = 1;
+            wifi_dns = argv[++i];
         } else if (strcmp(a, "--vulkan") == 0) {
             vulkan = 1;
         } else if (strcmp(a, "--no-vulkan") == 0) {
@@ -1732,6 +1839,10 @@ int main(int argc, char **argv)
     }
     if (link_room != NULL) {
         snprintf(opt.link_room, sizeof(opt.link_room), "%s", link_room);
+    }
+    opt.wifi = wifi >= 0 ? wifi : opt.wifi;
+    if (wifi_dns != NULL) {
+        snprintf(opt.wifi_dns, sizeof(opt.wifi_dns), "%.63s", wifi_dns);
     }
     if (!two_screens) {
         opt.tall = tall_setting;
@@ -1804,6 +1915,14 @@ int main(int argc, char **argv)
             SDL_Log("play: with others: %s; playing alone", why);
             snprintf(link_failure, sizeof(link_failure), "%s", why);
         }
+    }
+    /* Wi-Fi Connection (docs/multiplayer.md): the access point's network is this machine's.
+       Not with a room joined: a console of a room has the room's address */
+    arm7_port_on_reset(console_reset);
+    wifi_active = opt.wifi && netlink_run_link() == NULL;
+    if (wifi_active) {
+        wifi_start();
+        set_env("RUN_WIRELESS", "1");
     }
     static const char *const cleared[] = {"RUN_PNG",           "RUN_PNG_FRAMES",      "RUN_DUMP3D",   "RUN_NATIVE_RECORD",
                                           "RUN_NATIVE_REPLAY", "RUN_RAM_HASH", "RUN_RAM_DUMP", "RUN_NATIVE_LEARN",

@@ -25,6 +25,10 @@
     <string name="settings_link_server">Server address (empty: a room is opened on this device)</string>
     <string name="settings_link_room">Room name (the same name meets)</string>
     <string name="settings_link_note">With this on and the app started again, the DS\'s local wireless (opening the gate, visiting) reaches the other devices of the same room, four at most. On one Wi-Fi network, one device leaves the address empty and opens the room, and the others enter its address (shown below under how it is running). With people elsewhere, everybody enters the address of a relay (acww-relay).</string>
+    <string name="settings_wifi_title">Nintendo Wi-Fi Connection</string>
+    <string name="settings_wifi">Carry Wi-Fi Connection over this device\'s network (takes effect at the next start)</string>
+    <string name="settings_wifi_dns">Name server (for a private server, e.g. 192.0.2.10)</string>
+    <string name="settings_wifi_note">With this on and the app started again, the game finds an access point called \"acww-kor-port\", and what it sends over Wi-Fi goes out through this device\'s network. Nintendo\'s own servers are closed: enter the name server (DNS) a private server tells you to use, one that takes unpatched games by DNS alone. The title\'s \"something else\", \"Wi-Fi settings\" has a connection test. The console\'s address and Wi-Fi user are made on this device and kept with it. Playing together, when on, comes first.</string>
     <string name="settings_save_title">Save data</string>
     <string name="settings_save_export">Export the save…</string>
     <string name="settings_save_import">Import a save…</string>

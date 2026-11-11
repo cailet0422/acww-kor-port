@@ -93,6 +93,17 @@ public class SettingsActivity extends Activity {
         linkNote.setText(R.string.settings_link_note);
         column.addView(linkNote);
 
+        TextView wifiTitle = new TextView(this);
+        wifiTitle.setText(R.string.settings_wifi_title);
+        wifiTitle.setTextSize(18);
+        wifiTitle.setPadding(0, pad, 0, pad / 4);
+        column.addView(wifiTitle);
+        column.addView(choice("wifi", false, R.string.settings_wifi));
+        column.addView(field("wifi_dns", R.string.settings_wifi_dns));
+        TextView wifiNote = new TextView(this);
+        wifiNote.setText(R.string.settings_wifi_note);
+        column.addView(wifiNote);
+
         TextView saveTitle = new TextView(this);
         saveTitle.setText(R.string.settings_save_title);
         saveTitle.setTextSize(18);

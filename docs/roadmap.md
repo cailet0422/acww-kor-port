@@ -84,11 +84,14 @@ What the port does now and the order the rest goes in. The facts about the decom
      instead of pipes between processes, through a relay of rooms (`acww-relay`, or a room
      opened by one of the devices on the same network). The link is checked by itself; a
      visit between two towns is not, for want of towns past their first day;
-   - Nintendo Wi-Fi Connection through the game's own network code: the decomp's simulated
-     access point opened to the real network, with the server chosen by DNS, so a private
-     server works as it does on a console, and port and console players meet on the same server;
+   - Nintendo Wi-Fi Connection through the game's own network code: done as far as it could
+     be checked here. The access point opens onto the real network through a gateway of the
+     port's own, with the server chosen by DNS, so a private server is reached as on a
+     console, and port and console players meet on the same server. The game's settings
+     program and its connection test run (the console's reset they need is the port's);
+     no server could be reached from here, so a log-in and a visit are not checked;
    - a server of the project's own for port players: the relay above is that for local
-     wireless; for Wi-Fi Connection, to come;
+     wireless; for Wi-Fi Connection, the server the player names;
    - the console's settings the game reads (the user's name, birthday, the Wi-Fi connection's
      identity) are made by the port from scratch: no firmware or NAND image is used or read.
    - DS-to-DS local wireless with a real console is out of reach: a phone cannot send or receive
