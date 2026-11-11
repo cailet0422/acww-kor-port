@@ -20,6 +20,11 @@
     <string name="settings_tall">이어진 화면: 3D 장면을 위 화면까지 이어 그리기 (다음 실행부터 적용)</string>
     <string name="settings_resolution">3D 해상도 (실험적, 다음 실행부터 적용. 높일수록 훨씬 무거워집니다)</string>
     <string name="settings_vulkan">Vulkan 렌더러 (실험적, 다음 실행부터 적용): 3D 장면을 화면 해상도 그대로, 계단 현상 없이 그립니다. 위의 3D 해상도 설정 대신 쓰이며, 기기에서 안 되면 자동으로 꺼집니다</string>
+    <string name="settings_link_title">같이 하기 (멀티플레이)</string>
+    <string name="settings_link">다른 포트 사용자와 무선 통신 연결 (다음 실행부터 적용)</string>
+    <string name="settings_link_server">서버 주소 (비우면 이 기기에서 방을 엽니다)</string>
+    <string name="settings_link_room">방 이름 (같은 이름끼리 만납니다)</string>
+    <string name="settings_link_note">켜고 앱을 다시 실행하면 DS의 로컬 무선 통신(마을 문 열기, 놀러 가기 등)이 같은 방의 다른 기기와 이어집니다. 방은 최대 4대입니다. 같은 Wi-Fi에서는 한 기기가 주소를 비워 방을 열고, 나머지는 그 기기의 주소(아래 실행 상태에 표시됨)를 적습니다. 멀리 있는 사람과는 중계 서버(acww-relay) 주소를 함께 적습니다.</string>
     <string name="settings_save_title">세이브 데이터</string>
     <string name="settings_save_export">세이브 내보내기…</string>
     <string name="settings_save_import">세이브 가져오기…</string>

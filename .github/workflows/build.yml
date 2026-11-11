@@ -38,6 +38,8 @@ jobs:
           cmake --build build
       - name: ROM split against the decomp's extract.py
         run: python3 port/tests/test_rom_prep.py build/acww-rom-prep
+      - name: The network link and the relay, three consoles
+        run: build/acww-netlink-test
       - name: Starts and refuses a missing ROM
         run: |
           set +e

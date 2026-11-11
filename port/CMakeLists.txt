@@ -84,10 +84,11 @@ endif()
 # decomp/tools/run.py's SOURCES, the Reference form (native_none.c: no Native functions);
 # run.c is built with each program, with or without its own main (RUN_FRONT_END), and so are
 # sound.c and ds_audio.c: as they are for the headless program; for the front end with an SDL
-# device (src/sound_sdl.c) and with the DS's data fetching and output rate (src/ds_audio_port.c)
+# device (src/sound_sdl.c) and with the DS's data fetching and output rate (src/ds_audio_port.c);
+# and wm.c, whose link to other consoles is the network's for the front end (src/wm_port.c)
 set(RUNTIME_SOURCES
     arm.c memory.c io.c bios.c arm7.c boot.c frame.c input.c native_run.c
-    native_aggregate.c render.c drive.c sequencer.c wm.c wifi.c driven.c native_none.c)
+    native_aggregate.c render.c drive.c sequencer.c wifi.c driven.c native_none.c)
 if(DECOMP_HOST)
     list(APPEND RUNTIME_SOURCES native_os.c host.c native_tramp.S)
 else()
@@ -147,8 +148,21 @@ target_compile_definitions(acww_rom PRIVATE _DEFAULT_SOURCE)
 # The decomp's headless program (run.c's own main) and the ROM split on their own, for the
 # tests: port/tests/test_frames.py plays the decomp's recordings and compares the frames.
 if(NOT ANDROID)
-    add_executable(acww-run tools/run_headless.c "${RUNTIME}/sound.c" "${RUNTIME}/ds_audio.c")
-    set_source_files_properties("${RUNTIME}/sound.c" "${RUNTIME}/ds_audio.c" PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
+    add_executable(acww-run tools/run_headless.c "${RUNTIME}/sound.c" "${RUNTIME}/ds_audio.c" "${RUNTIME}/wm.c")
+    set_source_files_properties("${RUNTIME}/sound.c" "${RUNTIME}/ds_audio.c" "${RUNTIME}/wm.c" PROPERTIES COMPILE_OPTIONS
+        "${RUN_C_OPTIONS}")
+    # the relay of the rooms ports meet in, by itself (docs/multiplayer.md)
+    add_executable(acww-relay tools/relay_main.c src/relay.c)
+    target_include_directories(acww-relay PRIVATE src)
+    target_compile_options(acww-relay PRIVATE -std=c11 -Wall -Wextra)
+    target_compile_definitions(acww-relay PRIVATE _DEFAULT_SOURCE _GNU_SOURCE)
+    target_link_libraries(acww-relay PRIVATE Threads::Threads)
+    # the network link and the relay tried without the game (port/tests/netlink_test.c)
+    add_executable(acww-netlink-test tests/netlink_test.c src/netlink.c src/relay.c)
+    target_include_directories(acww-netlink-test PRIVATE src "${RUNTIME}")
+    target_compile_options(acww-netlink-test PRIVATE -std=c11 -Wall -Wextra)
+    target_compile_definitions(acww-netlink-test PRIVATE _DEFAULT_SOURCE _GNU_SOURCE)
+    target_link_libraries(acww-netlink-test PRIVATE Threads::Threads)
     target_include_directories(acww-run PRIVATE "${RUNTIME}")
     target_compile_options(acww-run PRIVATE ${RUN_C_OPTIONS})
     target_compile_definitions(acww-run PRIVATE _DEFAULT_SOURCE)
@@ -198,8 +212,9 @@ endif()
 # run.c is built through run_port.c, which adds the port's hooks into the game's code behind
 # the run's own (src/game_hooks.h)
 set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/scene_file.c src/vk_scene.c
-    src/vk_present.c src/run_port.c src/sound_sdl.c src/ds_audio_port.c)
-set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
+    src/vk_present.c src/netlink.c src/relay.c src/run_port.c src/sound_sdl.c src/ds_audio_port.c src/wm_port.c)
+set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c src/wm_port.c PROPERTIES COMPILE_OPTIONS
+    "${RUN_C_OPTIONS}")
 if(ANDROID)
     # SDLActivity loads libSDL2.so and libmain.so, and calls SDL_main
     add_library(main SHARED ${FRONT_SOURCES})

@@ -2,6 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     android:installLocation="auto">
 
+    <!-- playing with others: the relay of a room (port/src/netlink.c, relay.c) -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.hardware.gamepad" android:required="false" />

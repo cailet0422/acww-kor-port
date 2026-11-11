@@ -5,9 +5,13 @@ import android.app.AlertDialog;
 import android.content.Intent;
 import android.net.Uri;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextWatcher;
 import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
 import android.widget.RadioGroup;
@@ -75,6 +79,19 @@ public class SettingsActivity extends Activity {
             write("arrange", true);
             finish();
         }));
+
+        /* playing with others (docs/multiplayer.md): read when the game starts */
+        TextView linkTitle = new TextView(this);
+        linkTitle.setText(R.string.settings_link_title);
+        linkTitle.setTextSize(18);
+        linkTitle.setPadding(0, pad, 0, pad / 4);
+        column.addView(linkTitle);
+        column.addView(choice("link", false, R.string.settings_link));
+        column.addView(field("link_server", R.string.settings_link_server));
+        column.addView(field("link_room", R.string.settings_link_room));
+        TextView linkNote = new TextView(this);
+        linkNote.setText(R.string.settings_link_note);
+        column.addView(linkNote);
 
         TextView saveTitle = new TextView(this);
         saveTitle.setText(R.string.settings_save_title);
@@ -169,6 +186,37 @@ public class SettingsActivity extends Activity {
         group.setOnCheckedChangeListener((g, id) -> writeLine("resolution", String.valueOf(id)));
         box.addView(group);
         return box;
+    }
+
+    /** A line of text kept under `key` as it is typed. */
+    private EditText field(String key, int hint) {
+        EditText text = new EditText(this);
+        text.setHint(hint);
+        text.setSingleLine(true);
+        text.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        text.setText(readText(key));
+        text.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+
+            @Override
+            public void onTextChanged(CharSequence s, int start, int before, int count) {}
+
+            @Override
+            public void afterTextChanged(Editable s) {
+                writeLine(key, s.toString().replace("\n", "").trim());
+            }
+        });
+        return text;
+    }
+
+    private String readText(String key) {
+        for (String line : lines()) {
+            if (line.startsWith(key + "=")) {
+                return line.substring(key.length() + 1);
+            }
+        }
+        return "";
     }
 
     private Button button(int label, Runnable action) {

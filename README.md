@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.8.0).** The game runs in the port, on phones too, and its frames are the
+> **Early days (0.9.0).** The game runs in the port, on phones too, and its frames are the
 > decomp's own bit for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)).
 > Sound: [docs/sound.md](docs/sound.md). See the [roadmap](docs/roadmap.md).
 
@@ -40,6 +40,8 @@ This repository adds what the other platforms need, without changing the decomp 
 - a **Vulkan renderer** (experimental, off by default): the 3D scene drawn by the GPU at the
   screen's own resolution, antialiased, with the game's 2D layers mixed in; or, in software,
   the scene at 2 or 3 times the DS's size (heavy) ([docs/renderer.md](docs/renderer.md));
+- **playing together** (experimental): the DS's local wireless between ports over a network,
+  through a room on one of the devices or on a relay ([docs/multiplayer.md](docs/multiplayer.md));
 - **sound**: the runtime's own mixer heard through an SDL audio device
   (`port/src/sound_sdl.c`; the decomp's device is Windows-only);
 - the **ROM check and split** done on the device (`port/src/rom_prep.c`, the same split as the

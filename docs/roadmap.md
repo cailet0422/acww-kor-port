@@ -79,12 +79,16 @@ What the port does now and the order the rest goes in. The facts about the decom
    frames are untouched. Checked on a software Vulkan driver. To do: a phone; the settings
    for samples and for a smaller size; the DS features Wild World's scenes have not needed.
 5. **Playing together.**
-   - port players with each other: the decomp's simulated local wireless carried over the
-     network instead of pipes between processes;
+   - port players with each other ([multiplayer.md](multiplayer.md)): done as far as it
+     could be checked here. The decomp's simulated local wireless is carried over the network
+     instead of pipes between processes, through a relay of rooms (`acww-relay`, or a room
+     opened by one of the devices on the same network). The link is checked by itself; a
+     visit between two towns is not, for want of towns past their first day;
    - Nintendo Wi-Fi Connection through the game's own network code: the decomp's simulated
      access point opened to the real network, with the server chosen by DNS, so a private
      server works as it does on a console, and port and console players meet on the same server;
-   - a server of the project's own for port players;
+   - a server of the project's own for port players: the relay above is that for local
+     wireless; for Wi-Fi Connection, to come;
    - the console's settings the game reads (the user's name, birthday, the Wi-Fi connection's
      identity) are made by the port from scratch: no firmware or NAND image is used or read.
    - DS-to-DS local wireless with a real console is out of reach: a phone cannot send or receive

@@ -44,6 +44,7 @@
 #include "front.h"
 #include "game_hooks.h"
 #include "mix2d.h"
+#include "netlink.h"
 #include "render.h"
 #include "rom_prep.h"
 #include "scene_file.h"
@@ -69,6 +70,9 @@ static struct {
     int resetti;         /* Mr. Resetti comes after a play without a save, as on a DS */
     int autosave;        /* the port saves the town by itself (autosave.c) */
     int vulkan;          /* the window drawn through Vulkan, the scene at its size (vk_present.h) */
+    int link;            /* the wireless on, and carried to a room's other consoles (netlink.h) */
+    char link_server[128], link_room[40];
+    int link_port;
     int no_above;        /* the game's own choice of what to draw above its screen (--no-above) */
     const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
     int width, height;   /* the window's starting size (--size), else by --scale */
@@ -95,6 +99,11 @@ static void usage(void)
             "  --smooth        scale the screens with linear filtering instead of whole pixels\n"
             "  --resolution N  the 3D scene drawn at N times the DS's size, 1 to 3 (\"resolution=N\" in\n"
             "                  DATA/settings.txt keeps it); each step up costs several times the drawing\n"
+            "  --link-host     play with others: open a room on this machine (port 28920, or\n"
+            "                  --link-port N) for consoles on the same network to join\n"
+            "  --link-join HOST[:PORT]  join a room at a relay (acww-relay, or a machine that\n"
+            "                  opened one); --link-room NAME says which room (default \"acww\")\n"
+            "                  (\"link=1\", \"link_server=\" and \"link_room=\" in DATA/settings.txt keep it)\n"
             "  --vulkan, --no-vulkan  the window drawn through Vulkan, the 3D scene at the window's\n"
             "                  own size and multisampled (experimental; \"vulkan=1\" in\n"
             "                  DATA/settings.txt keeps it)\n"
@@ -445,6 +454,14 @@ static void settings_load(void)
             opt.autosave = v != 0;
         } else if (sscanf(line, "vulkan=%d", &v) == 1) {
             vulkan_setting = v != 0;
+        } else if (sscanf(line, "link=%d", &v) == 1) {
+            opt.link = v != 0;
+        } else if (strncmp(line, "link_server=", 12) == 0) {
+            snprintf(opt.link_server, sizeof(opt.link_server), "%.127s", line + 12);
+            opt.link_server[strcspn(opt.link_server, "\r\n")] = 0;
+        } else if (strncmp(line, "link_room=", 10) == 0) {
+            snprintf(opt.link_room, sizeof(opt.link_room), "%.39s", line + 10);
+            opt.link_room[strcspn(opt.link_room, "\r\n")] = 0;
         } else if (sscanf(line, "tall=%d", &v) == 1) {
             tall_setting = v != 0;
         } else if (sscanf(line, "sound=%d", &v) == 1) {
@@ -470,6 +487,9 @@ static void settings_save(void)
         fprintf(f, "resetti=%d\n", opt.resetti);
         fprintf(f, "autosave=%d\n", opt.autosave);
         fprintf(f, "vulkan=%d\n", vulkan_setting);
+        fprintf(f, "link=%d\n", opt.link);
+        fprintf(f, "link_server=%s\n", opt.link_server);
+        fprintf(f, "link_room=%s\n", opt.link_room);
         fprintf(f, "tall=%d\n", tall_setting);
         fprintf(f, "sound=%d\n", opt.sound);
         fprintf(f, "resolution=%d\n", resolution_setting);
@@ -574,6 +594,7 @@ static int vulkan_open(int headless)
  * the last seconds (pace) and the sound's device (sound_sdl.c). What a player can read out
  * when something looks or sounds wrong on a phone. */
 static double status_fps, status_busy;
+static char link_failure[160]; /* why no room was joined, when one was asked for */
 
 static void status_write(void)
 {
@@ -589,6 +610,11 @@ static void status_write(void)
         fprintf(f, "%.1f fps (DS %.1f), busy %.0f%%\n", status_fps, DS_BUS_HZ / DS_CYCLES_PER_FRAME, status_busy * 100.0);
     }
     fprintf(f, "sound: %s\n", opt.sound ? sound : "off");
+    if (opt.link) {
+        char link[320];
+        netlink_status(link, sizeof(link));
+        fprintf(f, "link: %s%s%s\n", link, link_failure[0] ? ": " : "", link_failure);
+    }
     fprintf(f, "picture: %dx, %s, %s\n", picture_scale, opt.tall ? "tall" : "two screens",
             presenter != NULL ? vk_present_device(presenter) : "no Vulkan");
     fclose(f);
@@ -1599,7 +1625,8 @@ int main(int argc, char **argv)
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
     const char *audio_wav = NULL;
-    int autosave = -1, load_autosave = 0, vulkan = -1;
+    int autosave = -1, load_autosave = 0, vulkan = -1, link = -1;
+    const char *link_server = NULL, *link_room = NULL;
     int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0, resolution = 0; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -1644,6 +1671,18 @@ int main(int argc, char **argv)
             opt.window_shot = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--scene-dump") == 0) {
             scene_dump = 1;
+        } else if (strcmp(a, "--link-host") == 0) {
+            link = 1;
+            link_server = "";
+        } else if (strcmp(a, "--link-join") == 0 && more) {
+            link = 1;
+            link_server = argv[++i];
+        } else if (strcmp(a, "--link-room") == 0 && more) {
+            link_room = argv[++i];
+        } else if (strcmp(a, "--link-port") == 0 && more) {
+            opt.link_port = atoi(argv[++i]);
+        } else if (strcmp(a, "--no-link") == 0) {
+            link = 0;
         } else if (strcmp(a, "--vulkan") == 0) {
             vulkan = 1;
         } else if (strcmp(a, "--no-vulkan") == 0) {
@@ -1687,6 +1726,13 @@ int main(int argc, char **argv)
         opt.autosave = autosave;
     }
     opt.vulkan = vulkan >= 0 ? vulkan : vulkan_setting;
+    opt.link = link >= 0 ? link : opt.link;
+    if (link_server != NULL) {
+        snprintf(opt.link_server, sizeof(opt.link_server), "%s", link_server);
+    }
+    if (link_room != NULL) {
+        snprintf(opt.link_room, sizeof(opt.link_room), "%s", link_room);
+    }
     if (!two_screens) {
         opt.tall = tall_setting;
     }
@@ -1741,12 +1787,32 @@ int main(int argc, char **argv)
         set_env("RUN_SEQUENCER", "1");
     }
     set_env("RUN_HASH", opt.hash);
+    /* with others (docs/multiplayer.md): the room is joined now, since the console's number
+       in it, which the run starts with, is the relay's to give */
+    set_env("RUN_WIRELESS", "");
+    set_env("RUN_LINK", "");
+    if (opt.link) {
+        char why[160] = "";
+        int console = netlink_start(opt.link_server, opt.link_room, opt.link_port, why, sizeof(why));
+        if (console >= 0) {
+            char status[320];
+            netlink_status(status, sizeof(status));
+            SDL_Log("play: with others: %s", status);
+            set_env("RUN_WIRELESS", "1");
+            set_env("RUN_LINK", netlink_run_link());
+        } else {
+            SDL_Log("play: with others: %s; playing alone", why);
+            snprintf(link_failure, sizeof(link_failure), "%s", why);
+        }
+    }
     static const char *const cleared[] = {"RUN_PNG",           "RUN_PNG_FRAMES",      "RUN_DUMP3D",   "RUN_NATIVE_RECORD",
                                           "RUN_NATIVE_REPLAY", "RUN_RAM_HASH", "RUN_RAM_DUMP", "RUN_NATIVE_LEARN",
                                           "RUN_CLEAN_RAN",     "RUN_TRACE",    "RUN_CALLS",    "RUN_DRIVE"};
     for (size_t i = 0; i < sizeof(cleared) / sizeof(cleared[0]); i++) {
         set_env(cleared[i], "");
     }
+    /* (for looking into the runtime from the front end: PORT_RUN_TRACE=wm, for one) */
+    set_env("RUN_TRACE", getenv("PORT_RUN_TRACE"));
 #ifdef __ANDROID__
     /* where port_compat.h's memfd_create stand-in makes its file on old kernels */
     char tmp[PATH_SIZE];
