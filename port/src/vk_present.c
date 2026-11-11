@@ -85,7 +85,17 @@ struct VkPresenter {
     VkSceneRenderer *scene;
     int samples;
     int sets_for_scene; /* the descriptor sets name the scene's picture as it is now */
+    char error[96];     /* what last failed, and Vulkan's number for it */
+    /* the window's size the swapchain was made for (the surface may give it another: then it
+       is not made again for the same size), and whether it is to be made anew all the same */
+    int made_w, made_h, stale;
 };
+
+static int failed(VkPresenter *p, const char *what, VkResult result, int code)
+{
+    snprintf(p->error, sizeof(p->error), "%s: %d", what, (int) result);
+    return code;
+}
 
 /* Small things ------------------------------------------------------------------------------ */
 
@@ -222,16 +232,16 @@ static int swapchain_make(VkPresenter *p, int width, int height)
     VkSurfaceCapabilitiesKHR caps;
     VkResult got = vk->GetPhysicalDeviceSurfaceCapabilitiesKHR(p->physical, p->surface, &caps);
     if (got == VK_ERROR_SURFACE_LOST_KHR) {
-        return 1;
+        return failed(p, "the surface's capabilities", got, 1);
     }
     if (got != VK_SUCCESS) {
-        return -1;
+        return failed(p, "the surface's capabilities", got, -1);
     }
     VkSurfaceFormatKHR formats[64];
     uint32_t format_count = 64;
     vk->GetPhysicalDeviceSurfaceFormatsKHR(p->physical, p->surface, &format_count, formats);
     if (format_count == 0) {
-        return -1;
+        return failed(p, "the surface has no formats", VK_SUCCESS, -1);
     }
     /* colours as they are: not a format that converts to sRGB on writing */
     VkSurfaceFormatKHR chosen = formats[0];
@@ -301,17 +311,21 @@ static int swapchain_make(VkPresenter *p, int width, int height)
     p->swapchain = old;
     swapchain_free(p);
     if (got == VK_ERROR_SURFACE_LOST_KHR) {
-        return 1;
+        return failed(p, "the swapchain", got, 1);
     }
     if (got != VK_SUCCESS) {
-        return -1;
+        return failed(p, "the swapchain", got, -1);
     }
     p->swapchain = made;
     if (p->pass != VK_NULL_HANDLE && p->format != chosen.format) {
-        return -1; /* (the pass and the pipelines were made for the first format) */
+        /* (the pass and the pipelines were made for the first format) */
+        return failed(p, "the surface's format changed", (VkResult) chosen.format, -1);
     }
     p->format = chosen.format;
     p->extent = extent;
+    p->made_w = width;
+    p->made_h = height;
+    p->stale = 0;
     if (p->pass == VK_NULL_HANDLE) {
         VkAttachmentDescription attachment = {.format = p->format,
                                               .samples = VK_SAMPLE_COUNT_1_BIT,
@@ -717,6 +731,7 @@ void vk_present_surface_gone(VkPresenter *p)
         p->surface = VK_NULL_HANDLE;
     }
     p->extent.width = p->extent.height = 0;
+    p->made_w = p->made_h = 0;
     /* the two semaphores anew: a frame that failed half way may have left one signaled */
     VkSemaphoreCreateInfo semaphore = {.sType = VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO};
     VkSemaphore acquired = VK_NULL_HANDLE, drawn = VK_NULL_HANDLE;
@@ -738,6 +753,11 @@ int vk_present_surface(VkPresenter *p, VkSurfaceKHR surface, int width, int heig
     vk_present_surface_gone(p);
     p->surface = surface;
     return swapchain_make(p, width, height);
+}
+
+const char *vk_present_error(const VkPresenter *p)
+{
+    return p->error;
 }
 
 const char *vk_present_device(const VkPresenter *p)
@@ -830,7 +850,7 @@ int vk_present_frame(VkPresenter *p, const PresentFrame *frame, int width, int h
     if (p->surface == VK_NULL_HANDLE) {
         return 1;
     }
-    if (p->swapchain == VK_NULL_HANDLE || (int) p->extent.width != width || (int) p->extent.height != height) {
+    if (p->swapchain == VK_NULL_HANDLE || p->stale || p->made_w != width || p->made_h != height) {
         int made = swapchain_make(p, width, height);
         if (made != 0) {
             return made;
@@ -846,10 +866,10 @@ int vk_present_frame(VkPresenter *p, const PresentFrame *frame, int width, int h
         got = vk->AcquireNextImageKHR(p->device, p->swapchain, 2000000000ull, p->acquired, VK_NULL_HANDLE, &at);
     }
     if (got == VK_ERROR_SURFACE_LOST_KHR) {
-        return 1;
+        return failed(p, "taking a picture of the window", got, 1);
     }
     if (got != VK_SUCCESS && got != VK_SUBOPTIMAL_KHR) {
-        return -1;
+        return failed(p, "taking a picture of the window", got, -1);
     }
 
     /* the scene's picture: as large as its screens are in the window */
@@ -973,11 +993,14 @@ int vk_present_frame(VkPresenter *p, const PresentFrame *frame, int width, int h
                                 .pImageIndices = &at};
     got = vk->QueuePresentKHR(p->queue, &present);
     if (got == VK_ERROR_SURFACE_LOST_KHR) {
-        return 1;
+        return failed(p, "showing the picture", got, 1);
     }
-    if (got == VK_ERROR_OUT_OF_DATE_KHR || got == VK_SUBOPTIMAL_KHR) {
-        p->extent.width = 0; /* made anew at the next frame */
+    if (got == VK_ERROR_OUT_OF_DATE_KHR) {
+        p->stale = 1; /* made anew at the next frame */
     }
+    /* (VK_SUBOPTIMAL_KHR: it is shown. A device held another way round than it is built says
+       so at every frame, since the picture is drawn upright and the system turns it; the
+       swapchain is made anew when the window's size changes, which a real turn brings) */
     return 0;
 }
 

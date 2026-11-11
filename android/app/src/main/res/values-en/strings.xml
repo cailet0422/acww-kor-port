@@ -69,4 +69,5 @@
     <string name="settings_vulkan_scale_about">How much of the screen\'s resolution the 3D scene is drawn at. Lower it if the picture stutters or the device gets hot. Takes effect at once.</string>
     <string name="settings_fast_cores">Use the fast cores</string>
     <string name="settings_fast_cores_about">Keeps the game\'s threads on the device\'s fast cores. Helps where the speed is uneven or low.</string>
+    <string name="settings_vulkan_off">Turned off by the game: three starts in a row through Vulkan never showed a picture. You can turn it on to try again.</string>
 </resources>

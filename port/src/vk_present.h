@@ -59,6 +59,10 @@ int vk_present_surface(VkPresenter *p, VkSurfaceKHR surface, int width, int heig
  * a pixel, blue first when *bgra. NULL when there is none. */
 const uint8_t *vk_present_pixels(VkPresenter *p, int *width, int *height, int *bgra);
 
+/* What last failed (in a frame or with a surface) and Vulkan's number for it, for the log;
+ * "" when nothing has. */
+const char *vk_present_error(const VkPresenter *p);
+
 /* The device's name, for the log. */
 const char *vk_present_device(const VkPresenter *p);
 

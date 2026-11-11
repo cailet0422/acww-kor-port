@@ -48,8 +48,8 @@ the window's size, for a GPU that is not fast enough; it takes effect at once.
 Where the device has no Vulkan, or not what the renderer needs of it, the game starts
 without it, with the picture drawn in software as before: it is found out at each start,
 and the setting stays as it is. A start through Vulkan that never gets as far as showing
-frames (a driver that crashes takes the app with it) is counted; after two in a row the
-setting is turned off, and the settings screen says why.
+frames (a driver that crashes takes the app with it) is counted; after three in a row the
+setting is turned off, and the settings screen says why. Nothing else turns it off.
 
 ## How
 
@@ -80,7 +80,9 @@ setting is turned off, and the settings screen says why.
    its swapchain are let go of before that happens, and a new surface is made when the app
    is back; the same is done after any frame that fails, since the system does not always
    say what was lost. If new surfaces keep failing, everything of Vulkan's is made anew
-   once, and after that the window goes on without Vulkan, showing the game's own screens.
+   once, and after that the window goes on without Vulkan for the rest of the run, with the
+   software picture (the tall view included); the next start tries Vulkan again. What failed,
+   with Vulkan's number for it, is in the log and on the settings screen's last page.
 6. **A thread for the frames.** Drawing a frame waits for the GPU to be done with the one
    before, so it is not done on the emulation's thread: that one says what there is to draw
    and goes on. A GPU slower than the game leaves frames out; nothing queues up.

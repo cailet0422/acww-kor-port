@@ -41,6 +41,7 @@ typedef struct Tile {
     uint32_t params[32];
     /* the frames its thread has finished with: the geometry of, and the drawing of */
     uint32_t placed, drawn;
+    uint32_t first; /* the first frame its thread plays (1, or the frame it was started in) */
     int list; /* its list for the frame placed last, or -1 */
     pthread_t thread;
 } Tile;
@@ -63,6 +64,12 @@ void tall3d_enable_scene(int tall_view, SceneSink sink, void *user)
     tile[0].ox = tile[0].oy = 0;
 }
 
+/* A thread for every tile that has none yet. At the start, and again when the tiles are set up
+ * anew after it (the front end finds no Vulkan at its first frame and goes back to tiles,
+ * which may be more than the one the scene had): a tile started late begins with the frame
+ * being written, not with the first. */
+static void tiles_start(void);
+
 void tall3d_enable(int tall_view, int size)
 {
     scene_sink = NULL;
@@ -83,6 +90,7 @@ void tall3d_enable(int tall_view, int size)
             t->oy = 2 * (top_row + r) + 1 - 3 * scale;
         }
     }
+    tiles_start();
 }
 
 int tall3d_scale(void)
@@ -281,7 +289,7 @@ static int scene_given; /* (tall3d_lean, below) */
 static void *tile_thread(void *arg)
 {
     Tile *t = arg;
-    for (uint32_t n = 1;; n++) {
+    for (uint32_t n = t->first;; n++) {
         pthread_mutex_lock(&lock);
         while (complete < n) {
             pthread_cond_wait(&moved, &lock);
@@ -327,6 +335,26 @@ static uint32_t all_drawn(void)
         least = tile[t].drawn < least ? tile[t].drawn : least;
     }
     return least;
+}
+
+static int tiles_running; /* the tiles that have a thread */
+
+static void tiles_start(void)
+{
+    if (!threads_started) {
+        return; /* the engines are not there yet: gpu3d_init comes here */
+    }
+    pthread_mutex_lock(&lock);
+    for (int t = tiles_running; t < tiles; t++) {
+        tile[t].engine->init();
+        tile[t].list = -1;
+        /* frames before this one are as good as drawn by it */
+        tile[t].first = filling;
+        tile[t].placed = tile[t].drawn = filling - 1;
+        pthread_create(&tile[t].thread, NULL, tile_thread, &tile[t]);
+    }
+    tiles_running = tiles > tiles_running ? tiles : tiles_running;
+    pthread_mutex_unlock(&lock);
 }
 
 static void feed(uint32_t offset, uint32_t value)
@@ -377,15 +405,11 @@ static void feed(uint32_t offset, uint32_t value)
 void gpu3d_init(void)
 {
     gpu3d_main_init();
-    if (tiles > 0 && !threads_started) {
-        for (int t = 0; t < tiles; t++) {
-            tile[t].engine->init();
-            tile[t].list = -1;
-            pthread_create(&tile[t].thread, NULL, tile_thread, &tile[t]);
-        }
+    if (!threads_started) {
         memset(&gx, 0, sizeof(gx));
         threads_started = 1;
     }
+    tiles_start();
 }
 
 void gpu3d_write(uint32_t offset, uint32_t value)

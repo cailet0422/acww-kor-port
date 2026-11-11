@@ -198,10 +198,23 @@ public class SettingsActivity extends Activity {
 
     private void displayPage() {
         final LinearLayout[] size = new LinearLayout[2];
+        final TextView[] turnedOff = new TextView[1];
         content.addView(toggle("vulkan", true, R.string.settings_vulkan, R.string.settings_vulkan_about, true, on -> {
             dim(size[0], on);
             dim(size[1], !on);
+            if (on) {
+                /* turned on again by hand: the game's word on why it turned it off goes */
+                removeLine("vulkan_off");
+                if (turnedOff[0] != null) {
+                    turnedOff[0].setVisibility(View.GONE);
+                }
+            }
         }));
+        if (!read("vulkan", true) && !readText("vulkan_off").isEmpty()) {
+            turnedOff[0] = note(getString(R.string.settings_vulkan_off));
+            turnedOff[0].setTextColor(accent);
+            content.addView(turnedOff[0]);
+        }
         String now = statusLine("picture:");
         String why = statusLine("vulkan:");
         if (!now.isEmpty()) {
@@ -649,11 +662,34 @@ public class SettingsActivity extends Activity {
         if (!found) {
             lines.add(line);
         }
-        try (FileWriter out = new FileWriter(settingsFile())) {
+        writeLines(lines);
+    }
+
+    private void removeLine(String key) {
+        List<String> lines = lines(), kept = new ArrayList<>();
+        for (String l : lines) {
+            if (!l.startsWith(key + "=")) {
+                kept.add(l);
+            }
+        }
+        if (kept.size() != lines.size()) {
+            writeLines(kept);
+        }
+    }
+
+    /** The settings' file written whole: beside it first, then in its place (the game reads
+     *  and writes the same file, port/src/front_sdl.c). */
+    private void writeLines(List<String> lines) {
+        File part = new File(getFilesDir(), "settings.txt.part");
+        try (FileWriter out = new FileWriter(part)) {
             for (String l : lines) {
                 out.write(l + "\n");
             }
         } catch (IOException e) {
+            toast(R.string.settings_failed);
+            return;
+        }
+        if (!part.renameTo(settingsFile())) {
             toast(R.string.settings_failed);
         }
     }

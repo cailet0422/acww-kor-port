@@ -581,29 +581,58 @@ static void settings_load(void)
     fclose(f);
 }
 
+/* The settings' file is the settings screen's as much as the game's (on Android,
+ * SettingsActivity writes it while the game waits behind it). So the game writes only the
+ * lines that are its own to change, and leaves every other line as it finds it: what it has
+ * in memory of the others may be older than the file.
+ *
+ * Its own: full_touch (the mark on the screen), the buttons' arrangement, the console's
+ * Wi-Fi address, and "vulkan" when it turns that off itself (vulkan_off says why, for the
+ * settings screen). The settings screen's request to arrange the buttons ("arrange") is
+ * taken out, having been taken. */
+static const char *vulkan_off_reason; /* set when the game turns the setting off */
+
+static int settings_own_line(const char *line)
+{
+    return strncmp(line, "full_touch=", 11) == 0 || strncmp(line, "wifi_mac=", 9) == 0 || strncmp(line, "arrange=", 8) == 0 ||
+           strncmp(line, "button.", 7) == 0 ||
+           (vulkan_off_reason != NULL && (strncmp(line, "vulkan=", 7) == 0 || strncmp(line, "vulkan_off=", 11) == 0));
+}
+
 static void settings_save(void)
 {
-    char path[PATH_SIZE + 16];
+    char path[PATH_SIZE + 16], tmp[PATH_SIZE + 24], line[256];
+    if (opt.read_only) {
+        return; /* (--read-only: nothing of DATA's is written) */
+    }
     settings_path(path, sizeof(path));
-    FILE *f = opt.read_only ? NULL : fopen(path, "w"); /* (--read-only: nothing of DATA's is written) */
-    if (f != NULL) {
-        fprintf(f, "full_touch=%d\n", opt.full_touch);
-        fprintf(f, "resetti=%d\n", opt.resetti);
-        fprintf(f, "autosave=%d\n", opt.autosave);
-        fprintf(f, "vulkan=%d\n", vulkan_setting);
-        fprintf(f, "link=%d\n", opt.link);
-        fprintf(f, "link_server=%s\n", opt.link_server);
-        fprintf(f, "link_room=%s\n", opt.link_room);
-        fprintf(f, "wifi=%d\n", opt.wifi);
-        fprintf(f, "wifi_dns=%s\n", opt.wifi_dns);
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = fopen(tmp, "w");
+    if (f == NULL) {
+        return;
+    }
+    FILE *old = fopen(path, "r");
+    if (old != NULL) {
+        while (fgets(line, sizeof(line), old) != NULL) {
+            if (!settings_own_line(line) && line[strspn(line, " \t\r\n")] != 0) {
+                fputs(line, f);
+                if (line[strlen(line) - 1] != '\n') {
+                    fputc('\n', f);
+                }
+            }
+        }
+        fclose(old);
+    }
+    fprintf(f, "full_touch=%d\n", opt.full_touch);
+    if (opt.wifi_mac[0]) {
         fprintf(f, "wifi_mac=%s\n", opt.wifi_mac);
-        fprintf(f, "tall=%d\n", tall_setting);
-        fprintf(f, "sound=%d\n", opt.sound);
-        fprintf(f, "vulkan_scale=%d\n", vulkan_scale_setting);
-        fprintf(f, "fast_cores=%d\n", fast_cores_setting);
-        fprintf(f, "resolution=%d\n", resolution_setting);
-        touch_settings_write(f);
-        fclose(f);
+    }
+    if (vulkan_off_reason != NULL) {
+        fprintf(f, "vulkan=0\nvulkan_off=%s\n", vulkan_off_reason);
+    }
+    touch_settings_write(f);
+    if (fclose(f) == 0) {
+        rename(tmp, path); /* whole, or the old one stays */
     }
 }
 
@@ -622,6 +651,8 @@ static Uint32 vulkan_retry_tick;
 static unsigned vulkan_frames;  /* shown through Vulkan in this run */
 static char vulkan_note[200];   /* why the window is not drawn through Vulkan, for the status */
 static uint32_t vulkan_lose_frame; /* --vulkan-lose N: the surface is let go of at frame N (a check) */
+static unsigned vulkan_renewals, vulkan_renew_failures; /* new surfaces made, and not made, in this run */
+static char vulkan_last_error[96];
 
 /* The size of what is drawn on, in pixels. */
 static void output_size(int *w, int *h)
@@ -760,7 +791,7 @@ static void vulkan_close(void)
 
 /* A Vulkan start that never got as far as showing frames (a driver that crashes or hangs in
  * it takes the app with it, every time): DATA/vulkan.trying counts the starts that did not,
- * and the second one in a row turns the setting off. The file goes once frames are shown, and
+ * and after three in a row the next start turns the setting off. The file goes once frames are shown, and
  * when the app is left in the ordinary way. */
 static void vulkan_marker_path(char *out, size_t size)
 {
@@ -847,6 +878,9 @@ static void status_write(void)
             presenter != NULL ? "Vulkan on " : "without Vulkan", presenter != NULL ? vk_present_device(presenter) : "");
     if (presenter == NULL && vulkan_note[0]) {
         fprintf(f, "vulkan: %s\n", vulkan_note);
+    } else if (presenter != NULL) {
+        fprintf(f, "vulkan: %u frames, %u new surfaces, %u failures%s%s\n", vulkan_frames, vulkan_renewals, vulkan_renew_failures,
+                vulkan_last_error[0] ? ", last: " : "", vulkan_last_error);
     }
     fclose(f);
 }
@@ -977,11 +1011,13 @@ static int open_window(void)
         opt.vulkan = 0; /* the checks' windows of no display: through Vulkan only when asked */
         picture_setup();
     }
-    if (opt.vulkan && !no_display && vulkan_marker_count() >= 2) {
-        SDL_Log("play: Vulkan did not get through its start the last two times: off (\"vulkan=0\" in the settings)");
-        snprintf(vulkan_note, sizeof(vulkan_note), "turned off: the last two starts with it did not get through");
+    if (opt.vulkan && !no_display && vulkan_marker_count() >= 3) {
+        SDL_Log("play: Vulkan did not get through its start the last three times: off (\"vulkan=0\" in the settings)");
+        snprintf(vulkan_note, sizeof(vulkan_note), "turned off: the last three starts with it did not get through");
         vulkan_setting = 0;
+        vulkan_off_reason = "starts";
         settings_save();
+        vulkan_off_reason = NULL;
         vulkan_marker_set(0);
         opt.vulkan = 0;
         picture_setup();
@@ -1151,6 +1187,7 @@ static void draw_vulkan_frame(int w, int h, const int top[4], const int bottom[4
         /* the surface went (with the app's leaving the screen, or however the system says
            it): let go of, and a new one before the next frame (vulkan_renew) */
         vulkan_failures += got < 0;
+        SDL_Log("play: a frame through Vulkan failed (%s)", vk_present_error(presenter));
         vulkan_release(got < 0 ? "a frame failed" : "it is gone");
     } else if (++vulkan_frames == 120) {
         vulkan_marker_set(0);
@@ -1260,16 +1297,18 @@ static void draw_vulkan(void)
 }
 
 /* Vulkan is given up in the middle of a run (new surfaces keep failing): the window as it is
- * without Vulkan, showing the game's two screens as they are (the engines stay set up for
- * the scene's hand-over, so the tall view waits for the next start), and the setting off. */
+ * without Vulkan, the engines set up for the software picture again (the tall view with it),
+ * for the rest of this run. The setting stays: the next start tries Vulkan again. */
 static void vulkan_give_up(void)
 {
-    SDL_Log("play: frame %u: Vulkan cannot draw on the window any more: the window without it (\"vulkan=0\" kept)", frame_now);
-    snprintf(vulkan_note, sizeof(vulkan_note), "turned off: the window could not be drawn on again");
+    SDL_Log("play: frame %u: Vulkan cannot draw on the window any more (%s): the software picture for the rest of this run",
+            frame_now, vulkan_last_error[0] ? vulkan_last_error : "no new surface");
+    snprintf(vulkan_note, sizeof(vulkan_note), "given up in this run after %u failures (%s)", vulkan_renew_failures,
+             vulkan_last_error[0] ? vulkan_last_error : "no new surface");
     vulkan_close();
     vulkan_lost = 0;
-    vulkan_setting = 0;
-    settings_save();
+    opt.vulkan = 0;
+    picture_setup();
     Uint32 flags = SDL_GetWindowFlags(window) & (SDL_WINDOW_RESIZABLE | SDL_WINDOW_ALLOW_HIGHDPI | SDL_WINDOW_FULLSCREEN_DESKTOP);
     int w, h;
     SDL_GetWindowSize(window, &w, &h);
@@ -1282,8 +1321,8 @@ static void vulkan_give_up(void)
 }
 
 /* A new surface for the window, and the swapchain on it. Tried ten times a second while
- * there is none; after a second of failures everything of Vulkan's is made anew, and after
- * two it is given up. */
+ * there is none; after three failures everything of Vulkan's is made anew, and after six
+ * more it is given up for this run. */
 static void vulkan_renew(void)
 {
     Uint32 now = SDL_GetTicks();
@@ -1294,23 +1333,29 @@ static void vulkan_renew(void)
     if (!window_ready()) {
         return; /* the app is not on the screen */
     }
-    if (vulkan_failures >= 20) {
+    if (vulkan_failures >= 10) {
         vulkan_give_up();
         return;
     }
-    if (vulkan_failures == 10) {
+    if (vulkan_failures == 3) {
         SDL_Log("play: frame %u: Vulkan from the start again", frame_now);
         vulkan_close();
         if (vulkan_open(vk_headless) != 0) {
+            snprintf(vulkan_last_error, sizeof(vulkan_last_error), "%.90s", vulkan_note);
             vulkan_close();
             vulkan_give_up();
+            return;
         }
-        vulkan_failures = 11;
+        vulkan_renewals++;
+        vulkan_failures = 4; /* (a frame that fails now counts on from here) */
         return;
     }
     VkSurfaceKHR surface = vulkan_surface(vk_get);
     if (surface == VK_NULL_HANDLE) {
         vulkan_failures++;
+        vulkan_renew_failures++;
+        snprintf(vulkan_last_error, sizeof(vulkan_last_error), "no surface: %.70s", SDL_GetError());
+        SDL_Log("play: frame %u: no new Vulkan surface (%s)", frame_now, SDL_GetError());
         return;
     }
     int w, h;
@@ -1320,9 +1365,13 @@ static void vulkan_renew(void)
         SDL_Log("play: frame %u: a new Vulkan surface, %d x %d", frame_now, w, h);
         vulkan_lost = 0;
         vulkan_failures = 0;
+        vulkan_renewals++;
     } else {
         /* (1: nothing to draw on yet, a window of no size) */
         vulkan_failures += made < 0;
+        vulkan_renew_failures += made < 0;
+        snprintf(vulkan_last_error, sizeof(vulkan_last_error), "%s", vk_present_error(presenter));
+        SDL_Log("play: frame %u: the new Vulkan surface cannot be drawn on (%s)", frame_now, vk_present_error(presenter));
         vk_present_surface_gone(presenter);
     }
 }

@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.11.1).** The game runs in the port, on phones too, and its frames are the
+> **Early days (0.11.2).** The game runs in the port, on phones too, and its frames are the
 > decomp's own bit for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)).
 > Sound: [docs/sound.md](docs/sound.md). See the [roadmap](docs/roadmap.md).
 
