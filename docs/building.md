@@ -86,7 +86,8 @@ how to run it for ARM under qemu-user.
 | `port/src/sound_sdl.c` | sound: the decomp's `sound.c` with an SDL audio device |
 | `port/src/game_hooks.c`, `run_port.c` | hooks into the game's code: drawing above the screen, Mr. Resetti |
 | `port/src/rom_prep.c` | the ROM check and the split into modules |
+| `port/src/memory_based.c` | the DS's memory where the system has room, with a base added (docs/64bit.md) |
 | `port/src/native_os_portable.c` | stand-ins for the decomp's x86-only host code |
-| `port/compat/` | headers force-included into the decomp's sources: Android's C library, 64-bit hosts |
+| `port/compat/` | a header force-included into the decomp's sources: what Android's C library lacks |
 | `port/tests/` | the ROM split against the decomp's (no ROM needed), the frames against the decomp's (your ROM) |
 | `android/` | the Gradle project: `LaunchActivity` (asks for the ROM), `MainActivity` (SDL), `SettingsActivity` |

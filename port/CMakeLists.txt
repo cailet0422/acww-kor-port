@@ -31,6 +31,56 @@ else()
     set(DECOMP_HOST OFF)
 endif()
 
+# Where the DS's memory is. The decomp maps it at the DS's own addresses, so that a DS address
+# is a host pointer. A process cannot count on those low addresses (on ARM phones the Java
+# runtime has its own memory there), so everywhere but on the decomp's own host the port maps
+# it where the system has room and adds a base to every address (src/memory_based.c). The
+# decomp's sources reach memory through memory_host of memory.h, and arm.c in five places by
+# using an address as a pointer: both are made here from the decomp's files, with the base
+# added. A text that is no longer there stops the build: the decomp has changed, and this
+# has to be looked at again.
+function(port_replace var old new)
+    string(FIND "${${var}}" "${old}" at)
+    if(at EQUAL -1)
+        message(FATAL_ERROR "the decomp's source has changed: '${old}' is not in it any more "
+                            "(port/CMakeLists.txt, the based memory)")
+    endif()
+    string(REPLACE "${old}" "${new}" out "${${var}}")
+    set(${var} "${out}" PARENT_SCOPE)
+endfunction()
+function(port_write path text)
+    set(old "")
+    if(EXISTS "${path}")
+        file(READ "${path}" old)
+    endif()
+    if(NOT old STREQUAL text)
+        file(WRITE "${path}" "${text}")
+    endif()
+endfunction()
+set(RUNTIME_INCLUDES "-include${CMAKE_CURRENT_SOURCE_DIR}/compat/port_compat.h")
+if(NOT DECOMP_HOST)
+    set(BASED "${CMAKE_CURRENT_BINARY_DIR}/based")
+    file(READ "${RUNTIME}/memory.h" text)
+    port_replace(text "#include <stdint.h>\n" "#include <stdint.h>\n\n/* (the port) where the DS's address 0 is in this process: src/memory_based.c */\nextern uint8_t *memory_base;\n")
+    port_replace(text "        return (uint8_t *) (uintptr_t) address;" "        return memory_base + address;")
+    port_write("${BASED}/memory.h" "${text}")
+    file(READ "${RUNTIME}/arm.c" text)
+    port_replace(text "memcpy(&h, (const void *) (uintptr_t) address, 2);" "memcpy(&h, (const void *) (memory_base + address), 2);")
+    port_replace(text "memcpy(&instr, (const void *) (uintptr_t) address, 4);" "memcpy(&instr, (const void *) (memory_base + address), 4);")
+    port_replace(text "memcpy(b->ops + count, (const void *) (uintptr_t) pc, bytes);" "memcpy(b->ops + count, (const void *) (memory_base + pc), bytes);")
+    port_replace(text "const uint8_t *now = (const uint8_t *) (uintptr_t) b->start;" "const uint8_t *now = (const uint8_t *) (memory_base + b->start);")
+    port_replace(text "memcpy((void *) (uintptr_t) check_log[0][i].address," "memcpy((void *) (memory_base + check_log[0][i].address),")
+    string(FIND "${text}" "(uintptr_t)" left)
+    if(NOT left EQUAL -1)
+        message(FATAL_ERROR "the decomp's arm.c uses an address as a pointer in a place the port does not know "
+                            "(port/CMakeLists.txt, the based memory)")
+    endif()
+    port_write("${BASED}/arm.c" "${text}")
+    # the made memory.h in front of every source of the runtime: the decomp's own, found
+    # beside the sources, is then skipped by its include guard
+    list(APPEND RUNTIME_INCLUDES "-include${BASED}/memory.h")
+endif()
+
 # decomp/tools/run.py's SOURCES, the Reference form (native_none.c: no Native functions);
 # run.c is built with each program, with or without its own main (RUN_FRONT_END), and so is
 # sound.c: as it is for the headless program, with an SDL device for the front end
@@ -40,8 +90,13 @@ set(RUNTIME_SOURCES
     native_aggregate.c render.c drive.c sequencer.c ds_audio.c wm.c wifi.c driven.c native_none.c)
 if(DECOMP_HOST)
     list(APPEND RUNTIME_SOURCES native_os.c host.c native_tramp.S)
+else()
+    list(REMOVE_ITEM RUNTIME_SOURCES arm.c memory.c)
 endif()
 list(TRANSFORM RUNTIME_SOURCES PREPEND "${RUNTIME}/")
+if(NOT DECOMP_HOST)
+    list(APPEND RUNTIME_SOURCES "${BASED}/arm.c" src/memory_based.c)
+endif()
 
 # gpu3d.c and gpu2d.c are built several times, through files of the port that include them:
 # the engines themselves, copies of the 3D engine for the parts of the picture beyond the
@@ -63,8 +118,7 @@ foreach(n RANGE 0 2)
 endforeach()
 foreach(copy ${ENGINE_COPIES})
     target_include_directories(${copy} PRIVATE "${RUNTIME}" src)
-    target_compile_options(${copy} PRIVATE -std=c11 -O2 -fwrapv -fno-strict-aliasing -w
-        "-include${CMAKE_CURRENT_SOURCE_DIR}/compat/port_compat.h")
+    target_compile_options(${copy} PRIVATE -std=c11 -O2 -fwrapv -fno-strict-aliasing -w ${RUNTIME_INCLUDES})
     target_compile_definitions(${copy} PRIVATE _DEFAULT_SOURCE)
     target_sources(acww_runtime PRIVATE $<TARGET_OBJECTS:${copy}>)
 endforeach()
@@ -76,15 +130,11 @@ target_include_directories(acww_runtime PUBLIC "${RUNTIME}")
 # the port's compatibility header in front of each (port/compat/port_compat.h).
 target_compile_options(acww_runtime PRIVATE
     $<$<COMPILE_LANGUAGE:C>:-std=c11 -O2 -fwrapv -fno-strict-aliasing -w>
-    $<$<COMPILE_LANGUAGE:C>:-include${CMAKE_CURRENT_SOURCE_DIR}/compat/port_compat.h>)
+    "$<$<COMPILE_LANGUAGE:C>:${RUNTIME_INCLUDES}>")
 target_compile_definitions(acww_runtime PRIVATE $<$<COMPILE_LANGUAGE:C>:_DEFAULT_SOURCE>)
 set_source_files_properties(src/native_os_portable.c PROPERTIES COMPILE_OPTIONS "-Wall;-Wextra")
-if(NOT CMAKE_SIZEOF_VOID_P EQUAL 4)
-    # memory.c refuses to build for anything but 32 bits; see the header for why it may
-    set_source_files_properties("${RUNTIME}/memory.c" PROPERTIES COMPILE_OPTIONS
-        "-include${CMAKE_CURRENT_SOURCE_DIR}/compat/memory_64bit.h")
-endif()
-set(RUN_C_OPTIONS -std=c11 -O2 -fwrapv -fno-strict-aliasing -w "-include${CMAKE_CURRENT_SOURCE_DIR}/compat/port_compat.h")
+target_include_directories(acww_runtime PRIVATE compat)
+set(RUN_C_OPTIONS -std=c11 -O2 -fwrapv -fno-strict-aliasing -w ${RUNTIME_INCLUDES})
 find_package(Threads REQUIRED)
 target_link_libraries(acww_runtime PUBLIC Threads::Threads m)
 
@@ -151,6 +201,8 @@ else()
     endif()
 endif()
 set_source_files_properties(${FRONT_SOURCES} PROPERTIES COMPILE_DEFINITIONS RUN_FRONT_END)
-set_source_files_properties(src/front_sdl.c src/touch.c src/game_hooks.c PROPERTIES COMPILE_OPTIONS "-std=c11;-Wall;-Wextra")
+# (they reach the DS's memory through memory_host too: the same memory.h in front of them)
+set_source_files_properties(src/front_sdl.c src/touch.c src/game_hooks.c PROPERTIES COMPILE_OPTIONS
+    "-std=c11;-Wall;-Wextra;${RUNTIME_INCLUDES}")
 target_compile_definitions(${FRONT} PRIVATE _DEFAULT_SOURCE PORT_VERSION="${PORT_VERSION}")
 target_link_libraries(${FRONT} PRIVATE acww_rom acww_runtime ${SDL_TARGET} m)

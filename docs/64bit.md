@@ -9,20 +9,31 @@ checked, and what is left out.
 ## Why it works
 
 The runtime maps the DS's memory at the DS's own addresses (main RAM at `0x02000000`, the ITCM
-at `0x01ff8000`, the DTCM at `0x027e0000`) and the interpreter uses a DS address as a pointer.
-`runtime/memory.c` therefore refuses to build unless pointers are 32 bits wide.
+at `0x01ff8000`, the DTCM at `0x027e0000`) and uses a DS address as a pointer.
+`runtime/memory.c` therefore refuses to build unless pointers are 32 bits wide, and needs
+those low addresses to be free.
 
-What the interpreter needs, though, is only that those addresses can be mapped as they are,
-and they are all below 4 GiB: a 64-bit process can map them as well as a 32-bit one. What a
-64-bit process cannot do is the reverse, hold a *host* pointer in a DS word. Only the Native
-and Clean forms do that (the matching sources compiled for the host, whose structures are the
-DS's). The port runs the **Reference form**, every function as the ROM's code in the
-interpreter, and that form compiles for 64 bits without a warning.
+Neither holds on a phone. Pointers are 64 bits wide, and the low addresses are not free: an
+Android app starts with the Java runtime's memory already mapped, and on ARM that includes
+the very range the DS's memory would take (0.5.0 stopped there on a real phone, "cannot map
+the DS memory"; the x86-64 emulator, whose Java runtime allocates elsewhere, had hidden it).
 
-So on 64-bit hosts the port answers `memory.c`'s check instead of changing the decomp
-(`port/compat/memory_64bit.h`, force-included into that one file), and replaces the decomp's
-x86-only host code with stand-ins that keep the Reference form's two needs: reserving the DS's
-address ranges, and reporting a crash (`port/src/native_os_portable.c`).
+So everywhere but on 32-bit x86 Linux, where the decomp's own host code and block translator
+are used, the port puts the DS's memory **where the system has room** and adds a base:
+
+- `port/src/memory_based.c` takes one stretch of address space large enough for every DS
+  address the regions cover and maps the regions inside it at their offsets. A DS address is a
+  host pointer once `memory_base` is added;
+- the runtime reaches the DS's memory through `memory_host` of `memory.h`, and in five places
+  in `arm.c` by using an address as a pointer. The build makes its own `memory.h` and `arm.c`
+  from the decomp's, with the base added (`port/CMakeLists.txt`); a text it expects and does
+  not find stops the build, so a change in the decomp cannot slip through;
+- nothing else in the **Reference form** (every function as the ROM's code in the
+  interpreter, which is what the port runs) takes a DS address for a pointer: it compiles
+  for 64 bits without a warning, and the frames below are the proof. The Native and Clean
+  forms, whose compiled code holds DS pointers in its structures, are not built;
+- the decomp's x86-only host code is replaced by stand-ins
+  (`port/src/native_os_portable.c`).
 
 ## How it is checked
 
@@ -48,13 +59,8 @@ made with the cross compilers (`port/cmake/linux-aarch64.cmake`, `linux-armhf.cm
 
 ## What is different on a phone
 
-- **The address ranges must be free in the app's process.** An Android app starts with the
-  Java runtime's memory already mapped. In the one system tried so far, the Android 14
-  emulator (an x86-64 image, the app as a 64-bit process), the DS's addresses were free and the
-  game booted and ran; nothing promises that of every phone. If a run stops with `cannot map
-  the DS memory`, that is this: the message and `log.txt` in the app's files say so.
 - **Speed.** There is no block translator for ARM (the decomp's is x86 code), so every
-  instruction is interpreted.
+  instruction is interpreted, and every memory access adds the base.
 
 ## What is left out
 

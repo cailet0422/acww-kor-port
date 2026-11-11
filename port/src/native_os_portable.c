@@ -7,9 +7,9 @@
  * builds the Reference form there instead: every function is the ROM's code in the
  * interpreter (docs/roadmap.md). That form still asks for two things here, which are real:
  *
- *   - native_os_reserve: keeps the DS's address ranges away from the host's allocations
- *     (run.c calls native_reserve before the run starts, in every form);
- *   - native_os_report_crashes: a line on stderr (logcat on Android) when the process faults.
+ *   - native_os_report_crashes: a line on stderr (the log file on Android) when the process
+ *     faults;
+ *   - native_os_reserve, which run.c calls before the run starts: nothing to do (below).
  *
  * The rest belongs to the Native run and reports that it is not available if anything ever
  * reaches it. */
@@ -22,13 +22,6 @@
 
 #include "host.h"
 #include "native_os.h"
-
-#ifndef MAP_FIXED_NOREPLACE
-#define MAP_FIXED_NOREPLACE 0x100000
-#endif
-#ifndef MAP_NORESERVE
-#define MAP_NORESERVE 0
-#endif
 
 static void not_here(const char *what)
 {
@@ -156,32 +149,12 @@ void *native_os_code_alloc(size_t size)
     return NULL;
 }
 
-/* PROT_NONE mappings over the range, 1 MiB at a time and page by page where a piece is
- * already taken; returns the bytes it could not keep. On kernels before 4.17, which ignore
- * MAP_FIXED_NOREPLACE, the address is a hint: a mapping placed elsewhere is given back. */
+/* The DS's address ranges need no keeping away from the host's allocations here: the DS's
+ * memory is not at its own addresses but inside a stretch of its own (memory_based.c), and no
+ * host pointer is ever taken for a DS address. */
 uint32_t native_os_reserve(uint32_t base, uint32_t size)
 {
-    const uint32_t page = (uint32_t) sysconf(_SC_PAGESIZE);
-    const int flags = MAP_PRIVATE | MAP_ANONYMOUS | MAP_FIXED_NOREPLACE | MAP_NORESERVE;
-    uint32_t missed = 0;
-    for (uint32_t a = base; a < base + size; a += 0x100000u) {
-        uint32_t n = base + size - a < 0x100000u ? base + size - a : 0x100000u;
-        void *got = mmap((void *) (uintptr_t) a, n, PROT_NONE, flags, -1, 0);
-        if (got == (void *) (uintptr_t) a) {
-            continue;
-        }
-        if (got != MAP_FAILED) {
-            munmap(got, n);
-        }
-        for (uint32_t b = a; b < a + n; b += page) {
-            got = mmap((void *) (uintptr_t) b, page, PROT_NONE, flags, -1, 0);
-            if (got != (void *) (uintptr_t) b) {
-                if (got != MAP_FAILED) {
-                    munmap(got, page);
-                }
-                missed += page;
-            }
-        }
-    }
-    return missed;
+    (void) base;
+    (void) size;
+    return 0;
 }

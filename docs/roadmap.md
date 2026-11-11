@@ -5,7 +5,7 @@
 What the port does now and the order the rest goes in. The facts about the decomp are from
 `decomp/` at the pinned commit (`docs/runtime.md`, `docs/play.md` and the runtime's sources).
 
-## Where it stands (0.6.0)
+## Where it stands (0.6.1)
 
 | | State |
 |---|---|
