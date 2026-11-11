@@ -328,6 +328,36 @@ public class SettingsActivity extends Activity {
             /* its own package: always there */
         }
         content.addView(heading(getString(R.string.app_name) + " " + version));
+        /* updates: the project's releases (Updater.java) */
+        content.addView(toggle("auto_update", true, R.string.settings_auto_update, R.string.settings_auto_update_about, false, null));
+        final Button[] check = new Button[1];
+        check[0] = button(R.string.settings_update_check, () -> {
+            check[0].setEnabled(false);
+            new Thread(() -> {
+                Updater.Release found = null;
+                boolean asked = true;
+                try {
+                    found = Updater.latest(this);
+                    Updater.remember(this, found);
+                } catch (IOException | RuntimeException e) {
+                    asked = false;
+                }
+                final Updater.Release release = found;
+                final boolean answered = asked;
+                runOnUiThread(() -> {
+                    check[0].setEnabled(true);
+                    if (!answered) {
+                        toast(R.string.settings_update_unknown);
+                    } else if (release == null || Updater.compare(release.version, Updater.installed(this)) <= 0) {
+                        toast(R.string.settings_update_none);
+                    } else {
+                        Updater.offer(this, release, () -> { });
+                    }
+                });
+            }, "update-check").start();
+        });
+        content.addView(check[0]);
+        content.addView(divider(8));
         /* how the run is going (front_sdl.c, status_write): something to read out in a report */
         String status = status();
         String crash = crashLines();

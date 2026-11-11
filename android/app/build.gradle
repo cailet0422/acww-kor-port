@@ -69,11 +69,27 @@ android {
         }
     }
 
+    // The project's release key, when one is given (docs/releases.md): -PreleaseKeystore=FILE,
+    // with its passwords and alias in the environment (ACWW_KEYSTORE_PASSWORD, ACWW_KEY_ALIAS,
+    // ACWW_KEY_PASSWORD; "android" and "androiddebugkey" without). Without it the build is
+    // signed with this machine's debug key, and installs as an update only over builds made on
+    // this machine.
+    def releaseKeystore = project.findProperty('releaseKeystore')
+    signingConfigs {
+        if (releaseKeystore) {
+            project_release {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv('ACWW_KEYSTORE_PASSWORD') ?: 'android'
+                keyAlias System.getenv('ACWW_KEY_ALIAS') ?: 'androiddebugkey'
+                keyPassword System.getenv('ACWW_KEY_PASSWORD') ?: 'android'
+            }
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
-            // Signed with the debug key until the project has a release key of its own.
-            signingConfig signingConfigs.debug
+            signingConfig releaseKeystore ? signingConfigs.project_release : signingConfigs.debug
         }
     }
 

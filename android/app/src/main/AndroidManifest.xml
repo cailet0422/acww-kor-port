@@ -4,6 +4,9 @@
 
     <!-- playing with others: the relay of a room (port/src/netlink.c, relay.c) -->
     <uses-permission android:name="android.permission.INTERNET" />
+    <!-- updates: the project's releases, handed to the system's installer (Updater.java) -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
+    <uses-permission android:name="android.permission.UPDATE_PACKAGES_WITHOUT_USER_ACTION" />
 
     <uses-feature android:glEsVersion="0x00020000" android:required="true" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -37,6 +40,10 @@
         <!-- The settings, opened from the game (SettingsActivity.java) -->
         <activity
             android:name=".SettingsActivity"
+            android:exported="false" />
+        <!-- What the system's installer says about an update (UpdateReceiver.java) -->
+        <receiver
+            android:name=".UpdateReceiver"
             android:exported="false" />
     </application>
 </manifest>

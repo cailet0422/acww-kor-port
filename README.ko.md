@@ -17,7 +17,7 @@
 > 게임 코드는 기기에서 이 ROM으로부터 읽어 오며, 이 저장소나 빌드에는 ROM의 내용이 전혀 들어 있지 않습니다.
 
 > [!WARNING]
-> **초기 단계입니다(0.12.1).** 포트에서 게임이 실행되고(휴대폰 포함), x86과 ARM, 32비트와 64비트 모두에서
+> **초기 단계입니다(0.13.0).** 포트에서 게임이 실행되고(휴대폰 포함), x86과 ARM, 32비트와 64비트 모두에서
 > 프레임이 디컴프의 것과 비트 단위로 같습니다([docs/64bit.ko.md](docs/64bit.ko.md)). 소리는
 > [docs/sound.ko.md](docs/sound.ko.md), 앞으로의 계획은 [로드맵](docs/roadmap.ko.md)을 참고하세요.
 
@@ -55,9 +55,13 @@ PC에서 실행하는 런타임을 갖고 있습니다. 모든 함수는 인터�
 
 ## 빌드 받기
 
-푸시할 때마다 APK와 Linux 실행 파일이 만들어집니다.
+Android용 APK는 [릴리즈 페이지](https://github.com/cailet0422/acww-kor-port/releases)에 있습니다. 한 번
+설치하면 앱이 새 버전을 스스로 확인해 알려 줍니다([docs/releases.ko.md](docs/releases.ko.md),
+[바뀐 것](CHANGELOG.ko.md)).
+
+푸시할 때마다 APK와 Linux 실행 파일도 만들어집니다.
 [Actions](https://github.com/cailet0422/acww-kor-port/actions/workflows/build.yml)에서 최근 실행을
-열고 artifacts를 내려받으세요. 아직 정식 릴리스는 없습니다.
+열고 artifacts를 내려받으세요(이 APK는 릴리즈와 서명이 달라 릴리즈 위에 덮어 설치되지 않습니다).
 
 | 플랫폼 | 필요한 것 |
 |---|---|

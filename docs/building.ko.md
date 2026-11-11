@@ -97,4 +97,4 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/src/native_os_portable.c` | 디컴프의 x86 전용 호스트 코드를 대신하는 코드 |
 | `port/compat/` | 디컴프 소스에 강제로 포함하는 헤더. Android C 라이브러리에 없는 것 보충 |
 | `port/tests/` | ROM 분리를 디컴프와 비교(ROM 불필요), 프레임을 디컴프와 비교(본인 ROM 필요) |
-| `android/` | Gradle 프로젝트: `LaunchActivity`(ROM 요청), `MainActivity`(SDL), `SettingsActivity`(설정) |
+| `android/` | Gradle 프로젝트: `LaunchActivity`(ROM 요청), `MainActivity`(SDL), `SettingsActivity`(설정), `Updater`(새 버전: docs/releases.ko.md) |

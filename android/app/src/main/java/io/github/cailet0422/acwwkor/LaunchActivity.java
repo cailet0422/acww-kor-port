@@ -29,6 +29,7 @@ public class LaunchActivity extends Activity {
 
     private TextView status;
     private Button pick;
+    private boolean updateOffered;
 
     private File rom() {
         return new File(getFilesDir(), "game.nds");
@@ -127,6 +128,15 @@ public class LaunchActivity extends Activity {
      *  made in the game): the player says which to go on from. Going on from it makes it the
      *  save, and the one it replaces is kept as acww.sav.before-auto. */
     private void startGame() {
+        /* a newer release found at an earlier start is offered first, once (Updater.java);
+           this start asks GitHub again in the background, for the next one */
+        Updater.checkInBackground(this);
+        Updater.Release newer = MainActivity.running || updateOffered ? null : Updater.known(this);
+        if (newer != null) {
+            updateOffered = true;
+            Updater.offer(this, newer, this::startGame);
+            return;
+        }
         File auto = new File(getFilesDir(), "acww.sav.auto");
         if (MainActivity.running || !auto.isFile()) {
             launch();

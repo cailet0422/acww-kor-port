@@ -72,4 +72,21 @@
     <string name="settings_vulkan_off">Turned off by the game: three starts in a row through Vulkan never showed a picture. You can turn it on to try again.</string>
     <string name="settings_fps60">Sixty frames</string>
     <string name="settings_fps60_about">The game draws its 3D scene 20 times a second (its own fixed pace). Scenes are made between those, for 60 pictures a second; the game runs at its own speed, and the 3D picture comes two or three frames (about 0.05 s) later. Takes effect at once.</string>
+    <string name="settings_auto_update">Look for new versions</string>
+    <string name="settings_auto_update_about">When the app starts, the project\'s releases on GitHub are asked for a newer version; one is offered at the next start. Nothing about the device or the player is sent.</string>
+    <string name="settings_update_check">Check for an update now</string>
+    <string name="settings_update_none">This is the latest version.</string>
+    <string name="settings_update_unknown">Could not check. Is there a network?</string>
+    <string name="update_title">Version %1$s</string>
+    <string name="update_message">This is version %1$s. An update keeps the save and the settings.</string>
+    <string name="update_now">Update</string>
+    <string name="update_later">Later</string>
+    <string name="update_skip">Skip this version</string>
+    <string name="update_fetching">Fetching… %1$d%%</string>
+    <string name="update_installing">Installing. Allow it if the system asks. The app closes when it is done: open it again.</string>
+    <string name="update_failed_fetch">The update could not be fetched. Try again later.</string>
+    <string name="update_failed_file">The fetched file is not a newer version of this app. Nothing was installed.</string>
+    <string name="update_failed_key">The fetched file is not signed as the installed app is. Nothing was installed.</string>
+    <string name="update_failed_install">The update could not be installed.</string>
+    <string name="update_not_installed">The update was not installed.</string>
 </resources>

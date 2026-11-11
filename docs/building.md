@@ -100,4 +100,4 @@ how to run it for ARM under qemu-user.
 | `port/src/native_os_portable.c` | stand-ins for the decomp's x86-only host code |
 | `port/compat/` | a header force-included into the decomp's sources: what Android's C library lacks |
 | `port/tests/` | the ROM split against the decomp's (no ROM needed), the frames against the decomp's (your ROM) |
-| `android/` | the Gradle project: `LaunchActivity` (asks for the ROM), `MainActivity` (SDL), `SettingsActivity` |
+| `android/` | the Gradle project: `LaunchActivity` (asks for the ROM), `MainActivity` (SDL), `SettingsActivity`, `Updater` (new versions: docs/releases.md) |

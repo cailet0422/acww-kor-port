@@ -72,4 +72,21 @@
     <string name="settings_vulkan_off">게임이 Vulkan으로 시작하다가 세 번 연속 화면을 띄우지 못해 자동으로 껐습니다. 다시 켜서 시도해 볼 수 있습니다.</string>
     <string name="settings_fps60">60프레임</string>
     <string name="settings_fps60_about">게임은 3D 장면을 초당 20번 그립니다(게임 자체의 고정 속도). 그 사이의 장면을 만들어 넣어 초당 60번으로 부드럽게 보여 줍니다. 게임 속도는 그대로이고, 3D 화면이 두세 프레임(약 0.05초) 늦게 나옵니다. 바로 적용됩니다.</string>
+    <string name="settings_auto_update">새 버전 자동 확인</string>
+    <string name="settings_auto_update_about">앱을 시작할 때 GitHub의 릴리즈에 새 버전이 있는지 확인하고, 있으면 다음에 시작할 때 알려 줍니다. 기기나 사용자 정보는 보내지 않습니다.</string>
+    <string name="settings_update_check">지금 업데이트 확인</string>
+    <string name="settings_update_none">최신 버전입니다.</string>
+    <string name="settings_update_unknown">확인하지 못했습니다. 네트워크를 확인해 주세요.</string>
+    <string name="update_title">새 버전 %1$s</string>
+    <string name="update_message">지금 버전은 %1$s입니다. 업데이트해도 세이브와 설정은 그대로 남습니다.</string>
+    <string name="update_now">업데이트</string>
+    <string name="update_later">나중에</string>
+    <string name="update_skip">이 버전 건너뛰기</string>
+    <string name="update_fetching">내려받는 중… %1$d%%</string>
+    <string name="update_installing">설치를 진행합니다. 시스템이 물으면 허용해 주세요. 설치가 끝나면 앱이 닫히니 다시 열어 주세요.</string>
+    <string name="update_failed_fetch">업데이트를 내려받지 못했습니다. 나중에 다시 시도해 주세요.</string>
+    <string name="update_failed_file">내려받은 파일이 이 앱의 새 버전이 아닙니다. 설치하지 않았습니다.</string>
+    <string name="update_failed_key">내려받은 파일의 서명이 설치된 앱과 다릅니다. 설치하지 않았습니다.</string>
+    <string name="update_failed_install">업데이트를 설치하지 못했습니다.</string>
+    <string name="update_not_installed">업데이트를 설치하지 않았습니다.</string>
 </resources>

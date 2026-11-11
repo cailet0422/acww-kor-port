@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.12.1).** The game runs in the port, on phones too, and its frames are the
+> **Early days (0.13.0).** The game runs in the port, on phones too, and its frames are the
 > decomp's own bit for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)).
 > Sound: [docs/sound.md](docs/sound.md). See the [roadmap](docs/roadmap.md).
 
@@ -60,9 +60,14 @@ The port runs the Reference form: the game's code is interpreted, as on a DS.
 
 ## Builds
 
-Every push builds an APK and a Linux program: open the latest run under
+The APK for Android is on the [releases page](https://github.com/cailet0422/acww-kor-port/releases).
+Once installed, the app looks for newer versions itself and offers them
+([docs/releases.md](docs/releases.md), [changes](CHANGELOG.md)).
+
+Every push also builds an APK and a Linux program: open the latest run under
 [Actions](https://github.com/cailet0422/acww-kor-port/actions/workflows/build.yml) and download
-its artifacts. There are no releases yet.
+its artifacts (that APK is signed with another key than the releases, and does not install
+over one).
 
 | Platform | Needs |
 |---|---|
