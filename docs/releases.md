@@ -15,11 +15,18 @@ its SHA-256 in `SHA256SUMS`, and the version's notes. The version is the one in 
 1. `port/VERSION` has the new version, and `CHANGELOG.md` and `CHANGELOG.ko.md` each have a
    section `## <version>` (the release's notes are those two sections, the Korean one first:
    `port/tools/release_notes.py`).
-2. The tag `v<version>` is pushed on the commit to release.
-3. `.github/workflows/release.yml` builds the APK, signs it, checks the signature and
-   publishes the release. It can also be started by hand (Actions, "release", "Run
-   workflow"). It refuses a tag that is not `port/VERSION`'s, a version that is released
-   already, and an APK that is not signed with the project's key.
+2. Whoever keeps the key builds the APK from that commit:
+   `./gradlew assembleRelease -PreleaseKeystore=FILE` (in `android/`).
+3. The APK is handed to `.github/workflows/release.yml` as
+   `release/acww-kor-port-<version>.apk` in a commit on a branch of its own, on top of the
+   commit it was built from, and the workflow is run on that branch (Actions, "release",
+   "Run workflow") with the built commit as its `target`. The workflow checks that the file
+   is that version of the app and signed with the project's key, and publishes the release:
+   the APK, its SHA-256, the notes, and the tag `v<version>` on the target. The branch with
+   the APK is then dropped: the APK is not kept in the repository's history.
+
+The workflow refuses a version that is released already, an APK of another version, and
+one that is not signed with the project's key.
 
 ## The key
 
@@ -31,10 +38,13 @@ rather not uninstall it (which takes the save with it; Settings > Data exports i
   `b8ff20ae83f5351ceed5a6def11522f470679c551af1cb41cf036c917e5453f7` (`android/release-key.sha256`);
   the release workflow compares each APK with it, and the app compares a fetched update's
   signature with its own before it hands it to the system.
-- The workflow takes the keystore from the repository secret `RELEASE_KEYSTORE_BASE64` (the
-  keystore file, base64), or from `android/release.keystore` if the repository has that file.
-  Its passwords and alias are `android`, `androiddebugkey`, `android` unless the secrets
-  `RELEASE_KEYSTORE_PASSWORD`, `RELEASE_KEY_ALIAS` and `RELEASE_KEY_PASSWORD` say otherwise.
+- The key is not in the repository and not on GitHub: the project's owner keeps the
+  keystore file, and a release is built where that file is. (Its passwords and alias are
+  the Android debug key's: `android`, `androiddebugkey`, `android`.) If the file is lost,
+  no later release installs over an earlier one.
+- Should the key be put on GitHub after all: with the keystore file, base64, in the
+  repository secret `RELEASE_KEYSTORE_BASE64`, the workflow builds and signs the APK itself
+  when none is handed in (pushing the tag `v<version>` is then enough).
 - A build made without it (`./gradlew assembleRelease`, and CI's "build" workflow) is signed
   with the building machine's debug key: it runs, and installs as an update only over builds
   from that machine. `-PreleaseKeystore=FILE` signs a local build with the project's key.
