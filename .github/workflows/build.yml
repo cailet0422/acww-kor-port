@@ -42,6 +42,8 @@ jobs:
         run: build/acww-netlink-test
       - name: The Wi-Fi Connection gateway against servers on the loopback
         run: build/acww-wifi-test
+      - name: The sequencer's pitch table
+        run: build/acww-pitch-test
       - name: Starts and refuses a missing ROM
         run: |
           set +e

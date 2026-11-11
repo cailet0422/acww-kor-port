@@ -26,6 +26,26 @@ with the title recording: the output is, sample for sample, the old output with 
 surround applied (left plus right unchanged; left minus right `d[i] + 2 d[i-2]`), 1024 samples
 later.
 
+## The notes' pitch
+
+The game's music is of two kinds. The title's is a recording (a stream), played at the rate
+it was made at. Everything else is sequences: notes played on samples, each at a pitch so
+many semitones from the sample's own. The driver turns that into the sample's timer with a
+table the ARM7's BIOS gives it, 2^(i/768) - 1 for the 768 steps of an octave.
+
+The decomp's sequencer makes that table by multiplying, and the number it multiplies by is
+not 2^(1/768): its table is wrong everywhere but at its first entry. So a note a whole number
+of octaves from its sample's pitch was in tune and every other note was at some other pitch,
+each interval wrong in its own way: the hourly music, the town tune and the animals' voices
+out of tune, the title's music right. The port's build of the sequencer takes the table from
+`port/src/pitch_table.c` (the definition's numbers); nothing else of the sequencer changes.
+
+`PORT_SOUND_TRACE=FILE` writes a line for each channel's start (where its samples are, the
+wave's header in front of them, its timer) and each change of a timer; `PORT_SOUND_COMMANDS=1`
+the game's commands for sequences, players and tracks; with `PORT_SOUND_SEQUENCES=1` also a
+sequence's and its bank's first bytes. That is how this was found: the timers of a sequence's
+notes against its bank's keys.
+
 ## The DS's output rate
 
 The DS puts out a sample every 1024 cycles of its bus clock, 32728.5 a second, which is also
@@ -51,9 +71,15 @@ every five seconds, and `--audio-wav FILE` writes the mixer's output to a file.
 
 ## Checks
 
-The headless test program (`acww-run`) keeps the decomp's mixer as it is, and its WAV files
-are the decomp's. With sound on, the runtime also runs the game's sequencer, and the frames
-then differ from the decomp's sound-off recordings; the frame checks are made with sound off.
+The headless test program (`acww-run`) keeps the decomp's mixer as it is (its sequencer has
+the port's pitch table, as the front end's). With sound on, the runtime also runs the game's
+sequencer, and the frames then differ from the decomp's sound-off recordings; the frame
+checks are made with sound off.
+
+`acww-pitch-test` (CI runs it) checks the pitch table against the definition. In a minute of
+play, the timers of 497 notes of sequences were compared with their samples' own: 493 are a
+whole number of semitones away, within the timer's rounding (the other four are one effect
+the game plays off the grid); with the decomp's table more than half were not.
 
 ## To do
 

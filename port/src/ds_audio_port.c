@@ -118,6 +118,7 @@ static uint8_t fetched_read(void *user, uint32_t address)
 /* the decomp's functions that the ones below stand in front of */
 #define ds_audio_init ds_audio_init_decomp
 #define ds_audio_start ds_audio_start_decomp
+#define ds_audio_timer ds_audio_timer_decomp
 /* each of the mixer's reads says which channel it is for (all are made with `a` and `no`) */
 #define read(user, address) read((reading = a, reading_no = no, (user)), (address))
 
@@ -128,7 +129,38 @@ void ds_audio_start_decomp(DsAudio *a, unsigned no);
 
 #undef ds_audio_init
 #undef ds_audio_start
+#undef ds_audio_timer
 #undef read
+
+#include <stdio.h>
+#include <stdlib.h>
+
+/* PORT_SOUND_TRACE=FILE: a line for each channel's start (its kind, where its samples are,
+ * the 12 bytes in front of them, which are a wave's header where it is one, and its period)
+ * and for each change of a period, with the bus cycle: what the notes are played at. */
+static FILE *trace_file;
+static int trace_asked = -1;
+
+static FILE *trace(void)
+{
+    if (trace_asked < 0) {
+        const char *path = getenv("PORT_SOUND_TRACE");
+        trace_asked = path != NULL && *path;
+        trace_file = trace_asked ? fopen(path, "w") : NULL;
+    }
+    return trace_file;
+}
+
+void ds_audio_timer_decomp(DsAudio *a, unsigned no, uint32_t period);
+
+void ds_audio_timer(DsAudio *a, unsigned no, uint32_t period)
+{
+    FILE *f = trace();
+    if (f != NULL && no < 16 && a->channel[no].active && a->channel[no].period != 2 * ((period & 65535u) != 0 ? period & 65535u : 65536u)) {
+        fprintf(f, "%llu timer %u %u\n", (unsigned long long) a->cycle, no, period & 65535u);
+    }
+    ds_audio_timer_decomp(a, no, period);
+}
 
 void ds_audio_init(DsAudio *a, DsAudioRead read, DsAudioEmit emit, void *user)
 {
@@ -146,6 +178,16 @@ void ds_audio_start(DsAudio *a, unsigned no)
     if (starts && memory_read != NULL && (a->channel[no].control >> 29 & 3) != 3) {
         /* the first 32 bytes are read now, not when the first sample is played */
         fetch_from(&fetch[no], &a->channel[no], a->user, 0);
+    }
+    FILE *f = trace();
+    if (f != NULL && starts) {
+        const DsAudioChannel *c = &a->channel[no];
+        fprintf(f, "%llu start %u control %08x source %08x period %u header", (unsigned long long) a->cycle, no, c->control,
+                c->source, c->period / 2);
+        for (uint32_t i = 0; i < 12 && memory_read != NULL && (c->control >> 29 & 3) != 3; i++) {
+            fprintf(f, " %02x", memory_read(a->user, c->source - 12 + i));
+        }
+        fprintf(f, "\n");
     }
     ds_audio_start_decomp(a, no);
 }

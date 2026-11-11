@@ -17,8 +17,15 @@
  * after power on: what it keeps in the shared area written again, its devices quiet, the
  * start's handshake from the top. The firmware's memory and the save chip stay as they are.
  */
+#include <stdint.h>
+
+#include "sequencer.h"
+
 #define arm7_step arm7_step_decomp
 #define arm7_init arm7_init_decomp
+/* the sound commands on their way to the sequencer, for a trace of them (below) */
+static void traced_command(uint32_t id, const uint32_t args[4], uint32_t shared_work);
+#define sequencer_command traced_command
 
 void arm7_step_decomp(void);
 void arm7_init_decomp(const char *rom);
@@ -27,6 +34,35 @@ void arm7_init_decomp(const char *rom);
 
 #undef arm7_step
 #undef arm7_init
+#undef sequencer_command
+
+/* PORT_SOUND_COMMANDS: the ARM9's commands for sequences, players and tracks, as lines on
+ * the standard error (what starts, and what the game sets on a track: its pitch among them). */
+static void traced_command(uint32_t id, const uint32_t args[4], uint32_t shared_work)
+{
+    static int asked = -1;
+    if (asked < 0) {
+        asked = getenv("PORT_SOUND_COMMANDS") != NULL;
+    }
+    if (asked && id <= 0x0b) {
+        fprintf(stderr, "sound-command: cycle %llu id %02x args %08x %08x %08x %08x\n", (unsigned long long) io_cycles(), id,
+                args[0], args[1], args[2], args[3]);
+    }
+    if (asked && (id == 0 || id == 2) && getenv("PORT_SOUND_SEQUENCES") != NULL) {
+        /* the sequence's first bytes, to be read by eye */
+        fprintf(stderr, "sound-sequence: %08x + %x:", args[1], args[2]);
+        for (uint32_t i = 0; i < 0x400; i++) {
+            fprintf(stderr, " %02x", rd32(args[1] + args[2] + i) & 0xff);
+        }
+        fprintf(stderr, "\n");
+        fprintf(stderr, "sound-bank: %08x:", args[3]);
+        for (uint32_t i = 0; i < 0x400; i++) {
+            fprintf(stderr, " %02x", rd32(args[3] + i) & 0xff);
+        }
+        fprintf(stderr, "\n");
+    }
+    sequencer_command(id, args, shared_work);
+}
 
 #include "sound.h"
 

@@ -43,7 +43,7 @@ function(port_replace var old new)
     string(FIND "${${var}}" "${old}" at)
     if(at EQUAL -1)
         message(FATAL_ERROR "the decomp's source has changed: '${old}' is not in it any more "
-                            "(port/CMakeLists.txt, the based memory)")
+                            "(port/CMakeLists.txt: the based memory, or the sequencer's pitch table)")
     endif()
     string(REPLACE "${old}" "${new}" out "${${var}}")
     set(${var} "${out}" PARENT_SCOPE)
@@ -58,6 +58,23 @@ function(port_write path text)
     endif()
 endfunction()
 set(RUNTIME_INCLUDES "-include${CMAKE_CURRENT_SOURCE_DIR}/compat/port_compat.h")
+# The sequencer with the BIOS's pitch table as it is on a DS: the decomp's file makes the
+# table from a wrong number, and every note not a whole octave from its sample's pitch is
+# out of tune (src/pitch_table.c). The table's making is replaced by the port's table.
+set(MADE "${CMAKE_CURRENT_BINARY_DIR}/made")
+file(READ "${RUNTIME}/sequencer.c" text)
+port_replace(text "    const uint64_t step = 1082278220ull; /* 2^(1/768) in 2.30 */
+    uint64_t x = 1ull << 30;
+    for (int i = 0; i < PITCH_TABLE_SIZE; i++) {
+        sq.pitch[i] = (uint16_t) ((((x - (1ull << 30)) << 16) + (1ull << 29)) >> 30);
+        x = mul30(x, step);
+    }
+" "    extern const uint16_t port_pitch_table[PITCH_TABLE_SIZE]; /* (the port) src/pitch_table.c */
+    for (int i = 0; i < PITCH_TABLE_SIZE; i++) {
+        sq.pitch[i] = port_pitch_table[i];
+    }
+")
+port_write("${MADE}/sequencer.c" "${text}")
 if(NOT DECOMP_HOST)
     set(BASED "${CMAKE_CURRENT_BINARY_DIR}/based")
     file(READ "${RUNTIME}/memory.h" text)
@@ -90,13 +107,14 @@ endif()
 # and arm7.c, to which the front end adds the console's reset (src/arm7_port.c)
 set(RUNTIME_SOURCES
     arm.c memory.c io.c bios.c boot.c frame.c input.c native_run.c
-    native_aggregate.c render.c drive.c sequencer.c driven.c native_none.c)
+    native_aggregate.c render.c drive.c driven.c native_none.c)
 if(DECOMP_HOST)
     list(APPEND RUNTIME_SOURCES native_os.c host.c native_tramp.S)
 else()
     list(REMOVE_ITEM RUNTIME_SOURCES arm.c memory.c)
 endif()
 list(TRANSFORM RUNTIME_SOURCES PREPEND "${RUNTIME}/")
+list(APPEND RUNTIME_SOURCES "${MADE}/sequencer.c" src/pitch_table.c)
 if(NOT DECOMP_HOST)
     list(APPEND RUNTIME_SOURCES "${BASED}/arm.c" src/memory_based.c)
 endif()
@@ -167,6 +185,10 @@ if(NOT ANDROID)
     target_compile_options(acww-wifi-test PRIVATE -std=c11 -Wall -Wextra)
     target_compile_definitions(acww-wifi-test PRIVATE _DEFAULT_SOURCE _GNU_SOURCE)
     target_link_libraries(acww-wifi-test PRIVATE Threads::Threads)
+    # the sequencer's pitch table against its definition (port/tests/pitch_test.c)
+    add_executable(acww-pitch-test tests/pitch_test.c src/pitch_table.c)
+    target_compile_options(acww-pitch-test PRIVATE -std=c11 -Wall -Wextra)
+    target_link_libraries(acww-pitch-test PRIVATE m)
     target_include_directories(acww-run PRIVATE "${RUNTIME}")
     target_compile_options(acww-run PRIVATE ${RUN_C_OPTIONS})
     target_compile_definitions(acww-run PRIVATE _DEFAULT_SOURCE)
