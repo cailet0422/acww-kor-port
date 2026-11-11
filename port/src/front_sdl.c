@@ -120,8 +120,8 @@ static void usage(void)
             "  --vulkan, --no-vulkan  the window drawn through Vulkan, the 3D scene at the window's\n"
             "                  own size and multisampled (on where the device can; \"vulkan=0\" in\n"
             "                  DATA/settings.txt keeps it)\n"
-            "  --fps60, --no-fps60  through Vulkan: scenes made between the game's twenty or\n"
-            "                  thirty a second, for sixty pictures a second at the game's own\n"
+            "  --fps60, --no-fps60  through Vulkan: scenes made between the game's twenty a\n"
+            "                  second, for sixty pictures a second at the game's own\n"
             "                  speed (on; \"fps60=0\" in DATA/settings.txt turns it off)\n"
             "  --no-sound      without sound (\"sound=0\" in DATA/settings.txt keeps it)\n"
             "  --audio-wav FILE  also write the mixer's sound to a new WAV file (the decomp's\n"
@@ -530,9 +530,14 @@ static int vulkan_setting = 1;
 static int vulkan_scale_setting = 100;
 /* the threads kept to a phone's fast cores (cores.h): from the next start */
 static int fast_cores_setting = 1;
-/* sixty frames: scenes made between the game's twenty or thirty a second (scene_tween.h); at once */
+/* sixty frames: scenes made between the game's twenty a second (scene_tween.h); at once */
 static int fps60_setting = 1;
 static unsigned long tween_scenes, tween_moved, tween_polygons; /* made, and how much of them moved */
+static unsigned long scene_arrivals; /* the scenes the game has drawn */
+static unsigned long scene_held;     /* frames that showed a scene again for want of the next */
+static unsigned long scene_every[9]; /* how many came 1, 2 ... 7 and 8 or more frames after the one before */
+static int tween_check;                           /* PORT_TWEEN_CHECK: scene_between_same for each pair */
+static unsigned long tween_checked, tween_wrong;
 static char cores_note[96];
 /* "arrange=1": the settings screen asks for the arranging of the buttons (settings_apply) */
 static int arrange_asked;
@@ -895,6 +900,9 @@ static void status_write(void)
                 vulkan_last_error[0] ? ", last: " : "", vulkan_last_error);
         fprintf(f, "sixty frames: %s, %lu scenes made between, %lu%% of their polygons moved\n", fps60_setting ? "on" : "off",
                 tween_scenes, tween_polygons ? tween_moved * 100 / tween_polygons : 0);
+        fprintf(f, "scenes: %lu; frames after the one before: 2: %lu, 3: %lu, 4: %lu, 5: %lu, more: %lu; frames that waited for one: %lu\n",
+                scene_arrivals, scene_every[2], scene_every[3], scene_every[4], scene_every[5],
+                scene_every[6] + scene_every[7] + scene_every[8], scene_held);
     }
     fclose(f);
 }
@@ -1145,7 +1153,10 @@ static struct {
 static Scene *scene_latest;  /* from the scene engine, not yet a frame's (scene_lock) */
 static Scene *scene_current; /* the scene of the frame shown (shown_lock) */
 /* sixty frames (scene_frame) */
-static Scene *scene_last, *scene_from; /* the game's last scene, and the one the way to it starts at */
+static Scene *scene_last, *scene_from; /* the scene being gone to, and the one the way to it starts at */
+static Scene *scene_wait;              /* the game's next scene, until the way to that one is done */
+static uint32_t scene_usual = 3;       /* how many frames apart the game's scenes usually are */
+static unsigned scene_idle;
 static uint32_t scene_last_output, scene_outputs;
 static uint32_t scene_steps = 1, scene_step = 2; /* the frames the way takes, and the next one's number */
 
@@ -1937,46 +1948,95 @@ static void scene_frame(const uint32_t *upper, const uint32_t *lower)
     scene_latest = NULL;
     SDL_UnlockMutex(scene_lock);
     scene_outputs++;
+    scene_arrivals += arrived != NULL;
     if (arrived != NULL) {
-        /* The game's new scene. With sixty frames on, and when it follows the last one by two
-           to four frames (the game draws twenty or thirty scenes a second), the frames from
-           this one on show the way from the last scene to the new one, a step a frame, and
-           the new scene itself as the next is due: the 3D picture a frame or two late, and
-           moving in sixtieths of a second. Otherwise the new scene at once, as the game has it. */
-        uint32_t steps = scene_last != NULL ? scene_outputs - scene_last_output : 0;
-        scene_free(scene_from);
-        scene_from = NULL;
-        scene_steps = scene_step = 1;
-        if (fps60_setting && opt.vulkan && !scene_dump && steps >= 2 && steps <= 4 && arrived->frame == scene_last->frame + 1 &&
-            arrived->tall == scene_last->tall) {
-            scene_from = scene_last;
-            scene_last = NULL;
-            scene_steps = steps;
-        }
-        scene_free(scene_last);
-        scene_last = arrived;
+        /* The game's new scene. Its scenes are a fixed number of frames apart as the game
+           counts them (three in town: twenty a second), but come a frame early or late as
+           its work for one ends before or after a frame's end: two, four, two, four frames
+           apart for stretches. */
+        static uint32_t newest_frame;
+        static int newest_tall, newest_known;
+        static uint8_t lately[8];
+        static unsigned lately_count;
+        uint32_t apart = newest_known ? scene_outputs - scene_last_output : 0;
+        int follows = newest_known && arrived->frame == newest_frame + 1 && arrived->tall == newest_tall && apart >= 1 && apart <= 6;
+        scene_every[apart < 8 ? apart : 8]++;
         scene_last_output = scene_outputs;
+        newest_frame = arrived->frame;
+        newest_tall = arrived->tall;
+        newest_known = 1;
+        if (follows) {
+            /* how far apart they usually are: the mean of the last eight */
+            unsigned sum = 0, n = 0;
+            lately[lately_count++ % 8] = (uint8_t) apart;
+            for (; n < (lately_count < 8 ? lately_count : 8); n++) {
+                sum += lately[n];
+            }
+            scene_usual = (sum + n / 2) / n;
+            scene_usual = scene_usual < 2 ? 2 : scene_usual > 4 ? 4 : scene_usual;
+        }
+        if (!(fps60_setting && opt.vulkan && !scene_dump) || !follows || scene_last == NULL) {
+            /* at once, as the game has it: sixty frames is off, or this is not the scene
+               after the last one (a cut, a pause) */
+            scene_free(scene_from);
+            scene_free(scene_wait);
+            scene_free(scene_last);
+            scene_from = scene_wait = NULL;
+            scene_last = arrived;
+            scene_steps = scene_step = 1;
+        } else if (scene_wait != NULL) {
+            /* one is waiting already: the window is behind the game. The scene on its way
+               is left where it is for the one that waited. */
+            scene_free(scene_from);
+            scene_from = scene_last;
+            scene_last = scene_wait;
+            scene_wait = arrived;
+            scene_step = 1;
+            scene_steps = scene_usual;
+        } else {
+            scene_wait = arrived;
+        }
+    }
+    /* Sixty frames: the window shows the way from each scene to the next, a step a frame, in
+       as many frames as the scenes are usually apart, one scene after the other at an even
+       pace whichever frame each came in: the next waits until the way to the last one is
+       done. The 3D picture is two or three frames behind the game for it, and moves in
+       sixtieths of a second. */
+    if (scene_last != NULL && scene_step > scene_steps && scene_wait != NULL) {
+        scene_held += scene_idle <= 3 ? scene_idle : 0; /* (longer: the game was not drawing) */
+        scene_idle = 0;
+        scene_free(scene_from);
+        scene_from = scene_last;
+        scene_last = scene_wait;
+        scene_wait = NULL;
+        scene_step = 1;
+        scene_steps = scene_usual;
     }
     if (scene_last != NULL && scene_step <= scene_steps) {
         Scene *show = NULL;
         if (scene_step < scene_steps && scene_from != NULL) {
             int moved = 0, of = 0;
             show = scene_between(scene_from, scene_last, (float) scene_step / (float) scene_steps, &moved, &of);
+            if (tween_check && scene_step == 1) {
+                int checked = 0, wrong = scene_between_same(scene_from, scene_last, &checked);
+                tween_checked += (unsigned long) checked;
+                tween_wrong += (unsigned long) wrong;
+            }
             if (show != NULL) {
                 tween_scenes++;
                 tween_moved += (unsigned long) moved;
                 tween_polygons += (unsigned long) of;
             }
         }
-        if (show == NULL && (scene_step == scene_steps || arrived != NULL)) {
+        if (show == NULL) {
             show = scene_hold(scene_last); /* the scene itself: its turn, or nothing could be made */
             scene_step = scene_steps;
         }
-        if (show != NULL) {
-            scene_free(scene_current);
-            scene_current = show;
-        }
+        scene_free(scene_current);
+        scene_current = show;
         scene_step++;
+    } else if (scene_last != NULL) {
+        scene_idle++; /* the way is done and the next scene has not come: the last one again */
     }
     if (!opt.vulkan) {
         return;
@@ -2203,6 +2263,14 @@ static void on_frame(uint32_t frame)
                         left, drawn, lines, kept, getenv("PORT_MIX_CHECK") != NULL ? (wrong ? ", SOME OF THEM WRONG" : ", all of them right") : "");
                 unsigned long how[5];
                 scene_between_counts(how);
+                SDL_Log("play: the game drew %lu scenes in %u frames; frames after the one before: 2: %lu, 3: %lu, 4: %lu, 5: %lu, more: %lu; "
+                        "frames that waited for one: %lu",
+                        scene_arrivals, scene_outputs, scene_every[2], scene_every[3], scene_every[4], scene_every[5],
+                        scene_every[6] + scene_every[7] + scene_every[8], scene_held);
+                if (tween_check) {
+                    SDL_Log("play: sixty frames: of %lu polygons found in pairs of scenes with the same order, %lu in another's place",
+                            tween_checked, tween_wrong);
+                }
                 if (tween_scenes) {
                     SDL_Log("play: sixty frames: %lu scenes made between the game's, %lu of their %lu polygons moved (%lu with a "
                             "flowing texture; not: %lu not noted, %lu new, %lu too far)",
@@ -2397,6 +2465,8 @@ int main(int argc, char **argv)
     }
     opt.vulkan = vulkan >= 0 ? vulkan : vulkan_setting;
     fps60_setting = fps60 >= 0 ? fps60 : fps60_setting;
+    tween_check = getenv("PORT_TWEEN_CHECK") != NULL;
+
     opt.link = link >= 0 ? link : opt.link;
     if (link_server != NULL) {
         snprintf(opt.link_server, sizeof(opt.link_server), "%s", link_server);

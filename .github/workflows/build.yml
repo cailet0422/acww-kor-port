@@ -52,6 +52,8 @@ jobs:
         run: build/acww-wifi-test
       - name: The sequencer's pitch table
         run: build/acww-pitch-test
+      - name: The scenes made between the game's (sixty frames)
+        run: build/acww-tween-test
       - name: Starts and refuses a missing ROM
         run: |
           set +e

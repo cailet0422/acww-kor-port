@@ -71,5 +71,5 @@
     <string name="settings_fast_cores_about">Keeps the game\'s threads on the device\'s fast cores. Helps where the speed is uneven or low.</string>
     <string name="settings_vulkan_off">Turned off by the game: three starts in a row through Vulkan never showed a picture. You can turn it on to try again.</string>
     <string name="settings_fps60">Sixty frames</string>
-    <string name="settings_fps60_about">The game draws its 3D scene 20 to 30 times a second. Scenes are made between those, for 60 pictures a second; the game runs at its own speed, and the 3D picture comes a frame or two (about 0.03 s) later. Takes effect at once.</string>
+    <string name="settings_fps60_about">The game draws its 3D scene 20 times a second (its own fixed pace). Scenes are made between those, for 60 pictures a second; the game runs at its own speed, and the 3D picture comes two or three frames (about 0.05 s) later. Takes effect at once.</string>
 </resources>

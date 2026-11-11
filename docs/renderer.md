@@ -94,31 +94,60 @@ setting is turned off, and the settings screen says why. Nothing else turns it o
 
 ## Sixty frames
 
-The game draws its 3D scene twenty or thirty times a second (in town, a new scene every
-third frame of the DS's sixty), so each scene is on the screen for two or three frames. With
+The game's own pace is twenty scenes a second in town. Its main loop draws a scene, asks
+for the swap and sleeps; the VBlank handler counts frames and wakes it at every third
+(`func_01ffcc60` in the decomp: a counter against the number at 0x020dd828, which the game
+sets to 3). A faster processor changes nothing about it (tried here: eight times the
+instructions a frame, still a scene every third frame). A smaller number does: the loop
+then runs more often, and everything in the game is counted in turns of that loop, so the
+whole game runs faster in proportion (with 2 it was half as fast again). A game that runs
+at sixty frames of its own at the speed it has would need every step, timer and animation
+in its code taken apart and made a third as long; that is not what a player's device can
+do to a ROM, and it would take three times the processor's work besides.
+
+So the frames between the game's scenes are made here (`port/src/scene_tween.c`), with
 "sixty frames" on (`fps60`, on by default, a switch on the settings screen that works at
-once), the frames between show scenes made between the game's (`port/src/scene_tween.c`):
+once):
 
 - the copy of the engine that hands the scenes out also notes every polygon as the game
   gives it, before clipping and before hidden faces are left out (`gpu3d_tile.c`; two
   places of the decomp's `gpu3d.c` are marked for it as it is built);
-- a polygon of the new scene is found in the scene before by what does not move (its
-  attributes, its texture and texture coordinates) and, among those alike, by being
-  nearest. Its corners are put a third, two thirds (or half) of the way from where they
-  were to where they are, in clip coordinates, and the renderer clips them where they lie;
-- water's texture flows: its polygons have other texture coordinates in every scene. They
-  are found without them, and the texture is put on its way as well (unless it started
-  again from the other end);
-- one that is not found, or that would have moved farther than things move in a frame of
-  the game (a cut to another view, another object of the same shape), stays where the new
-  scene has it.
+- each polygon of the new scene is found in the scene before. What it is found by: what
+  does not move of it (its attributes, its texture and texture coordinates) and its place
+  in the order the game gives the polygons in, which is the same from scene to scene for a
+  thing. The two scenes are gone through side by side; where their orders part (a thing
+  came into view or left it), the place to go on from is looked for among the polygons of
+  that kind near by: where the two orders agree longest, and of those the one that went
+  most like the polygon found before it. A polygon that is in each scene once is itself
+  wherever it went;
+- its corners are put a third, two thirds (or half) of the way from where they were to
+  where they are, in clip coordinates, and the renderer clips them where they lie;
+- water's texture flows: its polygons have other texture coordinates in every scene, all
+  of a polygon's moved alike. They are found so, and the texture is put on its way as well
+  (unless it started again from the other end);
+- one that is not found (a cut to another view, a thing that was not there) stays where
+  the new scene has it.
 
-When a scene comes two to four frames after the last, the frames from then on show the way
-to it, and the scene itself as the next is due: the 3D picture is a frame or two (17 to
-33 ms) later than without, and moves sixty times a second. The game itself runs as it does:
-nothing of it is sped up, and its 2D layers come as they are. On a walk through the town
-and along the sea, 1 475 862 of 1 482 261 polygons (99.6 in 100) were found and moved,
-42 656 of them water.
+Being nearest alone, which is how the first version found them, does not tell a thing's
+polygons apart: an animal's are a few dots from one another and many have the same piece
+of the texture, so that with the view moving, a neighbour is as near to where a polygon
+was as the polygon itself, and the animal came out torn in the frames between (a player
+saw the animals flicker while walking). `acww-tween-test` checks the finding on made-up
+scenes (an animal crossing the view, a fast run, things entering and leaving, water, a
+cut), and `PORT_TWEEN_CHECK=1` counts, in pairs of scenes that give the same polygons in
+the same order, those found in another's place: 12 of 328 486 on a walk through the town
+and along the sea (501 and more before).
+
+The scenes do not come evenly. The game's turns are three frames apart, but the swap is
+asked for a little before or after a frame's end, as the turn's work goes: on that walk,
+1336 scenes came three frames after the one before, 591 two and 624 four. So they are
+shown one after the other at an even pace: the way to a scene takes as many frames as the
+scenes are usually apart (the mean of the last eight), and the next scene waits until the
+way to the last one is done. A frame only shows a scene again when the next has not come
+by then (50 frames of that walk's 8600). The 3D picture is two or three frames (33 to
+50 ms) behind the game for it, and moves sixty times a second. The game itself runs as it
+does, and its 2D layers come as they are. On the walk, 1 675 680 of 1 683 475 polygons
+(99.5 in 100) were found and moved, 56 087 of them water.
 
 With the scene moving in every frame, each frame has to reach the window once and in its
 turn. A frame through Vulkan is therefore drawn as its picture is finished (by the drawing
@@ -126,8 +155,11 @@ thread's word), not at the emulation's: at the emulation's, a picture finished a
 late was left out and the one before it shown twice, which nobody saw while a scene stood
 for three frames. `--window-shot N --window-shots COUNT` saves consecutive frames of the
 window: with sixty frames off, a run through the town changes about 40 000 of the window's
-pixels in every third frame and a few hundred in the others; with it on, 25 000 to 36 000
+pixels in every third frame and a few hundred in the others; with it on, 27 000 to 30 000
 in every frame.
+
+The status the settings screen shows has the count: the scenes, how many frames each came
+after the one before, and the frames that waited for one.
 
 `acww-scene-vk SCENE W H OUT SAMPLES EARLIER T` draws the scene made the part T of the way
 from one dumped scene to the next.
