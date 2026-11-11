@@ -1,0 +1,80 @@
+<p align="center"><a href="README.md">English</a> · <b>한국어</b></p>
+
+<h1 align="center">acww-kor-port</h1>
+
+<p align="center">
+  <i>놀러오세요 동물의 숲</i>(Animal Crossing: Wild World, 닌텐도 DS) 한국판(<code>ADMK</code>)의 Android(및 Linux) 포트입니다.<br>
+  <a href="https://github.com/banatic/acww-decomp">acww-decomp</a> 디컴파일을 기반으로 합니다.
+</p>
+
+<p align="center">
+  <a href="https://github.com/cailet0422/acww-kor-port/actions/workflows/build.yml"><img alt="build" src="https://github.com/cailet0422/acww-kor-port/actions/workflows/build.yml/badge.svg"></a>
+</p>
+
+> [!IMPORTANT]
+> **게임 데이터는 포함되어 있지 않습니다.** 직접 덤프한 한국판 카트리지 ROM(`ADMK`, SHA-1
+> `1fffd601d3439e37cd934e72d08e487a93fc449b`)이 필요합니다. 사용 영역만 남긴(trimmed) 덤프도 받습니다.
+> 게임 코드는 기기에서 이 ROM으로부터 읽어 오며, 이 저장소나 빌드에는 ROM의 내용이 전혀 들어 있지 않습니다.
+
+> [!WARNING]
+> **초기 단계입니다(0.1.0).** Android와 Linux용 빌드가 되고 ROM 처리도 테스트했지만,
+> **실제 휴대폰에서 게임을 돌려 본 적은 아직 없습니다.** 소리도 아직 나지 않고, APK는 32비트 앱을
+> 실행할 수 있는 휴대폰에만 설치됩니다. [로드맵](docs/roadmap.ko.md)을 참고하세요.
+
+## 무엇인가
+
+[acww-decomp](https://github.com/banatic/acww-decomp)는 게임의 ARM9 코드를 디컴파일하고, 그것을
+PC에서 실행하는 런타임을 갖고 있습니다. 모든 함수는 인터프리터에서 ROM의 원래 코드로 실행되거나
+(*Reference* 형태), 일치(matching) 소스를 PC용으로 컴파일해 실행되거나, 읽기 쉬운 재작성 버전으로
+실행될 수 있습니다. 다만 화면 창은 Windows 전용이고, 컴파일된 형태는 32비트 x86 PC가 필요합니다.
+
+이 저장소는 디컴프를 고치지 않고(`decomp/` 서브모듈) 다른 플랫폼에 필요한 부분을 더합니다.
+
+- **SDL2 화면 코드**(`port/src/front_sdl.c`): 디컴프의 Win32 창을 대신합니다. 두 화면, 키보드,
+  마우스, 게임패드, 화면 둘레에 그리는 터치 버튼, 프레임 속도 맞춤, 세이브 파일을 맡습니다.
+- **ROM 확인과 분리**를 기기에서 합니다(`port/src/rom_prep.c`). 디컴프의 `tools/extract.py`와
+  같은 방식으로 나누며, 그 결과와 같은지 테스트합니다.
+- 디컴프의 x86 전용 호스트 코드를 대신하는 **작은 대체 코드**를 둬서 런타임이 ARM용으로 빌드되게
+  합니다(`port/src/native_os_portable.c`, `port/compat/port_compat.h`).
+- **Android 앱**(`android/`): 처음 한 번 ROM을 고르게 한 뒤 게임을 시작합니다.
+- 푸시할 때마다 둘 다 빌드하고 테스트를 돌리는 **CI**.
+
+포트는 Reference 형태로 실행합니다. DS에서처럼 게임 코드를 인터프리터로 해석해 돌립니다.
+
+## 빌드 받기
+
+푸시할 때마다 APK와 Linux 실행 파일이 만들어집니다.
+[Actions](https://github.com/cailet0422/acww-kor-port/actions/workflows/build.yml)에서 최근 실행을
+열고 artifacts를 내려받으세요. 아직 정식 릴리스는 없습니다.
+
+| 플랫폼 | 필요한 것 |
+|---|---|
+| Android | Android 5.0 이상, 32비트(`armeabi-v7a`) 앱을 실행할 수 있는 휴대폰, OpenGL ES 2.0 |
+| Linux | x86 Linux에 32비트 x86 SDL2(`libsdl2-2.0-0:i386`) |
+
+Android에서는 처음 실행할 때 ROM 파일을 고르면 앱 저장공간으로 복사합니다. Linux에서는
+`acww-kor --rom 경로/한국판.nds`로 실행합니다. 직접 빌드하는 방법은 [docs/building.ko.md](docs/building.ko.md)에 있습니다.
+
+## 조작
+
+| DS | 키보드 | 게임패드 | 터치 화면 |
+|---|---|---|---|
+| 십자 버튼 | 방향키 | 십자키, 왼쪽 스틱 | 왼쪽 패드(세로 화면에서는 아래) |
+| A, B, X, Y | X, Z, S, A | 위치가 같은 버튼 | 오른쪽 버튼 |
+| L, R | Q, W | 숄더, 트리거 | 위쪽 모서리 |
+| START, SELECT | Enter, Shift 또는 Backspace | Start, Back | 아래쪽 |
+| 터치스크린 | 아래 화면에서 마우스 | | 아래 화면을 손가락으로 |
+
+Tab을 누르고 있으면 기기가 낼 수 있는 최대 속도로 돌고, F12는 두 화면을 세이브 옆에 PNG로 저장합니다.
+
+세이브는 256KB 플래시 이미지(에뮬레이터가 쓰는 `.sav` 형식)입니다. Android에서는 앱 파일 안의
+`acww.sav`, Linux에서는 `~/.local/share/acww-kor-port/acww-kor/`에 있으며 `--data`와 세이브 경로로
+바꿀 수 있습니다. 게임이 세이브 칩에 쓰기를 멈추면 임시 파일을 거쳐 기록하고, 기존 파일을 처음
+덮어쓸 때는 원래 파일을 `.bak`으로 남깁니다.
+
+## 라이선스
+
+포트의 코드(`port/`, `android/`, CI)는 [MIT 라이선스](LICENSE)입니다. `decomp/`의 acww-decomp는
+[CC0 1.0](https://github.com/banatic/acww-decomp/blob/main/LICENSE)이며, 화면 코드는 그 `runtime/play.c`를
+따릅니다. 빌드할 때 받는 SDL2는 zlib 라이선스입니다. *동물의 숲*은 닌텐도의 것이며, 이 프로젝트는
+닌텐도와 관계가 없습니다.

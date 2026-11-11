@@ -1,0 +1,8 @@
+# builds
+/build/
+/build-*/
+__pycache__/
+# the player's own files never go in the repository
+*.nds
+*.sav
+*.sav.bak

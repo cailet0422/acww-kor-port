@@ -1,0 +1,60 @@
+# Builds the port on every push: the 32-bit Linux program with the ROM-split test, and the
+# Android APK (armeabi-v7a). No ROM is used or needed (docs/building.md).
+name: build
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  linux-i686:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: 32-bit toolchain and SDL2
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update
+          sudo apt-get install -y gcc-multilib g++-multilib ninja-build libsdl2-dev:i386
+      - name: Build
+        run: |
+          cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$PWD/port/cmake/linux-i686.cmake
+          cmake --build build
+      - name: ROM split against the decomp's extract.py
+        run: python3 port/tests/test_rom_prep.py build/acww-rom-prep
+      - name: Starts and refuses a missing ROM
+        run: |
+          set +e
+          SDL_VIDEODRIVER=dummy build/acww-kor --data "$RUNNER_TEMP/data"
+          test $? -eq 1
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acww-kor-linux-i686
+          path: build/acww-kor
+
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: SDL2 source
+        run: git clone --depth 1 --branch release-2.30.9 https://github.com/libsdl-org/SDL.git android/SDL
+      - name: NDK and CMake
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease
+      - name: Name it
+        run: cp android/app/build/outputs/apk/release/app-release.apk "acww-kor-port-$(cat port/VERSION)-armeabi-v7a.apk"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: acww-kor-port-android
+          path: acww-kor-port-*-armeabi-v7a.apk

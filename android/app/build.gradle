@@ -1,0 +1,78 @@
+// The Android build (docs/building.md): port/CMakeLists.txt as libmain.so, SDL2 as libSDL2.so,
+// and SDL's Java glue.
+//
+// Needs the SDL2 source tree: put it at android/SDL or pass -PsdlDir=/path/to/SDL.
+// -Pabis=x86 builds for a 32-bit x86 emulator instead of ARM phones.
+plugins {
+    id 'com.android.application'
+}
+
+def sdlDir = file(project.findProperty('sdlDir') ?: "${rootDir}/SDL")
+def portDir = file("${rootDir}/../port")
+// -PdecompRoot=/path/to/acww-decomp: a decomp checkout other than the decomp/ submodule
+def decompRoot = project.findProperty('decompRoot') ?: file("${rootDir}/../decomp").absolutePath
+// The port's version (port/VERSION); versionCode grows with it: 0.1.0 is 100
+def portVersion = file("${portDir}/VERSION").text.trim()
+def portVersionCode = portVersion.tokenize('.').collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] }
+
+if (!file("${sdlDir}/android-project/app/src/main/java/org/libsdl/app/SDLActivity.java").exists()) {
+    throw new GradleException("SDL2 source not found at ${sdlDir}: clone it there or pass -PsdlDir (docs/building.md)")
+}
+
+android {
+    namespace 'io.github.cailet0422.acwwkor'
+    compileSdk 34
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'io.github.cailet0422.acwwkor'
+        minSdk 21
+        targetSdk 34
+        versionCode portVersionCode
+        versionName portVersion
+        ndk {
+            // The decomp's runtime is 32-bit only (docs/roadmap.md): phones that run 32-bit
+            // apps. 64-bit-only phones cannot install this build yet.
+            abiFilters(*(project.findProperty('abis') ?: 'armeabi-v7a').split(','))
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DSDL_SOURCE_DIR=${sdlDir}",
+                          "-DDECOMP_ROOT=${decompRoot}",
+                          '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "${portDir}/CMakeLists.txt"
+            version '3.22.1'
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += "${sdlDir}/android-project/app/src/main/java"
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            // Signed with the debug key until the project has a release key of its own.
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}

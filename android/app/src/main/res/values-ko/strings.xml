@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="rom_explain">이 앱에는 게임 데이터가 들어 있지 않습니다. 직접 덤프한 한국판 카트리지(ADMK) ROM으로 실행하며, 처음 한 번 앱 저장공간으로 복사합니다. 다른 지역판·리비전이나 패치된 ROM은 지원하지 않습니다.</string>
+    <string name="rom_pick">ROM 파일 선택</string>
+    <string name="rom_copying">복사하는 중…</string>
+    <string name="rom_copy_failed">파일을 복사하지 못했습니다. 다시 시도해 주세요.</string>
+</resources>
