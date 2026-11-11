@@ -37,6 +37,7 @@
 #include "sound.h"
 
 #include "front.h"
+#include "game_hooks.h"
 #include "rom_prep.h"
 #include "tall3d.h"
 #include "touch.h"
@@ -53,6 +54,8 @@ static struct {
     char data[PATH_SIZE], rom[PATH_SIZE], save[PATH_SIZE], modules_dir[PATH_SIZE], manifest[PATH_SIZE];
     const char *rtc, *input;
     int read_only, scale, unpaced, linear, overlay, tall, full_touch;
+    int no_above;        /* the game's own choice of what to draw above its screen (--no-above) */
+    const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
     int width, height;   /* the window's starting size (--size), else by --scale */
     uint32_t window_shot; /* the frame whose window is saved as a PNG (--window-shot) */
     uint32_t stop_frame; /* 0: none */
@@ -82,6 +85,8 @@ static void usage(void)
             "  --window-shot N save the window as it is drawn at frame N as a PNG in DATA\n"
             "  --two-screens   the DS's two pictures as they are, without the 3D scene continued\n"
             "                  onto the upper screen\n"
+            "  --no-above      with the tall view, draw only the objects the game itself would\n"
+            "  --hash FILE     write each frame's hashes there (the decomp's RUN_HASH), to compare runs\n"
             "  --shot N        save the screens of frame N as a PNG in DATA (may be given 8 times)\n",
             opt.data);
     exit(2);
@@ -753,6 +758,7 @@ static void pace(void)
 
 /* Once per frame, on the emulation's thread ------------------------------------------------ */
 
+static int frame_first = 1;
 static uint32_t taps_last;
 static int pen_tap_last, pen_tap_last_x, pen_tap_last_y;
 static uint32_t quit_wait;
@@ -760,6 +766,12 @@ static uint32_t quit_wait;
 static void on_frame(uint32_t frame)
 {
     frame_now = frame;
+    if (frame_first) {
+        /* the port's hooks into the game's code, behind the run's own, which exist by now */
+        port_hooks_install();
+        game_hooks_draw_above(opt.tall && !opt.no_above);
+        frame_first = 0;
+    }
     if (window == NULL) {
         /* the window opens here, after native_reserve has kept the DS's address ranges from
            the host's allocations (run.c), as play.c's does */
@@ -805,6 +817,7 @@ static void on_frame(uint32_t frame)
     if (quit_asked || (opt.stop_frame && frame >= opt.stop_frame)) {
         if (writes == save_writes_flushed || save_quiet_frames >= 30 || ++quit_wait > 180) {
             save_flush(quit_asked ? "quit" : "frame limit");
+            SDL_Log("play: %lu drawings of objects above the game's screen", game_hooks_drawn_above());
             SDL_Log("play: ended at frame %u", frame);
             /* not exit(): the drawing thread is still running, and exit() takes apart what it
                uses (Android's C library aborts on a mutex destroyed under a thread) */
@@ -867,6 +880,10 @@ int main(int argc, char **argv)
             opt.linear = 1;
         } else if (strcmp(a, "--touch") == 0) {
             opt.overlay = 1;
+        } else if (strcmp(a, "--no-above") == 0) {
+            opt.no_above = 1;
+        } else if (strcmp(a, "--hash") == 0 && more) {
+            opt.hash = argv[++i];
         } else if (strcmp(a, "--full-touch") == 0) {
             full_touch = 1;
         } else if (strcmp(a, "--size") == 0 && more) {
@@ -941,7 +958,8 @@ int main(int argc, char **argv)
     set_env("RUN_INPUT", opt.input);
     set_env("RUN_AUDIO", "");
     set_env("RUN_AUDIO_WAV", "");
-    static const char *const cleared[] = {"RUN_HASH",          "RUN_PNG",      "RUN_DUMP3D",   "RUN_NATIVE_RECORD",
+    set_env("RUN_HASH", opt.hash);
+    static const char *const cleared[] = {"RUN_PNG",           "RUN_PNG_FRAMES",      "RUN_DUMP3D",   "RUN_NATIVE_RECORD",
                                           "RUN_NATIVE_REPLAY", "RUN_RAM_HASH", "RUN_RAM_DUMP", "RUN_NATIVE_LEARN",
                                           "RUN_CLEAN_RAN",     "RUN_TRACE",    "RUN_CALLS",    "RUN_DRIVE"};
     for (size_t i = 0; i < sizeof(cleared) / sizeof(cleared[0]); i++) {

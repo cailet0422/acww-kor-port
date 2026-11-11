@@ -5,7 +5,7 @@
 What the port does now and the order the rest goes in. The facts about the decomp are from
 `decomp/` at the pinned commit (`docs/runtime.md`, `docs/play.md` and the runtime's sources).
 
-## Where it stands (0.3.0)
+## Where it stands (0.4.0)
 
 | | State |
 |---|---|
@@ -48,13 +48,13 @@ What the port does now and the order the rest goes in. The facts about the decom
      mark with three dots, or Back on Android, turns the buttons on and off, and the choice
      is kept;
    - the two screens as one picture: done for the 3D scene ([tall-view.md](tall-view.md));
-   - **widening what the game draws above its own screen.** The game leaves out terrain and
-     objects that are off the lower screen, so the upper part of the tall view lacks whatever
-     lies wholly above it. To do: find in the decomp where the game decides what to send (the
-     rows of the town's ground it draws, and its tests of an object against the screen), and
-     widen those upwards while the tall view is on, by hooks in the interpreter at those
-     functions, without touching what the game simulates. Each widening is checked against
-     the recordings: the lower screen's frames must stay the decomp's;
+   - **widening what the game draws above its own screen.** The game leaves out what is off
+     the lower screen, so the upper part of the tall view lacks whatever lies wholly above it.
+     Done for the game's objects (actors), by a hook where the game asks whether to draw one
+     ([tall-view.md](tall-view.md)): the simulation is untouched and the recordings give the
+     decomp's frames. Still to do: the ground and what stands on it (trees, buildings), which
+     other code draws; find it in the decomp, see whether it leaves anything out above the
+     screen, and widen it the same way, checked against the recordings;
    - cutouts and rounded corners on real phones: to be checked on devices;
    - autosave, and Mr. Resetti on or off: both need the game's own code found in the decomp
      (the save routine, and the check that sends Resetti after a reset).

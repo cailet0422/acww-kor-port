@@ -27,11 +27,29 @@ The frames the runtime produces are untouched: `port/tests/test_frames.py` gives
 sequences with the split engine as before. The headless programs never start the second
 engine.
 
+## Objects above the game's screen
+
+The game checks each of its objects against the camera's frustum once a frame and marks it
+"far" when it is outside or deeper than the object's own limit; a class may skip running and
+drawing its far objects (`Actor_CanRun`, `Actor_CanDraw` in `decomp/clean/main/actor.c`). An
+object above the lower screen's top edge is outside, so the game would not draw it, and the
+upper part of the tall view would lack it.
+
+`port/src/game_hooks.c` hooks the entry of `Actor_CanDraw` in the interpreter. For an object
+marked far, it makes the check again with the frustum's top plane raised by two screens,
+from what the game's own check left in the object; if the object is then inside, the mark is
+cleared for the length of that one call and put back at its return. Only the answer to
+"draw?" changes. Whether an object runs, which is the game's simulation, is decided as
+before: with the hook on, the new-game recording gives the decomp's frames for both screens,
+all 13,760 of them, while 33 drawings were added. `--no-above` turns it off.
+
 ## Limits
 
-- **What the game does not send is not there.** The game leaves out objects that are off its
-  own screen. Tall things that start on the lower screen continue; something wholly above it
-  may be missing until the game's own culling is widened.
+- **What the game does not send is not there.** The game leaves out what is off its own
+  screen. For its objects (actors) the port widens that, below; for anything the game leaves
+  out by other means (the ground and what stands on it are drawn by other code, not yet
+  looked into), tall things that start on the lower screen continue, and something wholly
+  above it may be missing.
 - **The upper screen's own pictures are under the scene.** Where the game shows something of
   its own on the upper screen while the 3D scene is on the lower one, the scene is drawn over
   it wherever it has something to draw.
