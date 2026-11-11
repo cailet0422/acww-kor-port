@@ -2,7 +2,7 @@
 // and SDL's Java glue.
 //
 // Needs the SDL2 source tree: put it at android/SDL or pass -PsdlDir=/path/to/SDL.
-// -Pabis=x86 builds for a 32-bit x86 emulator instead of ARM phones.
+// -Pabis=x86_64 builds for an x86 emulator instead of ARM phones.
 plugins {
     id 'com.android.application'
 }
@@ -31,9 +31,9 @@ android {
         versionCode portVersionCode
         versionName portVersion
         ndk {
-            // The decomp's runtime is 32-bit only (docs/roadmap.md): phones that run 32-bit
-            // apps. 64-bit-only phones cannot install this build yet.
-            abiFilters(*(project.findProperty('abis') ?: 'armeabi-v7a').split(','))
+            // Both ARM ABIs: recent phones run only 64-bit apps (docs/64bit.md).
+            // -Pabis=x86_64 (or x86) builds for an emulator instead
+            abiFilters(*(project.findProperty('abis') ?: 'armeabi-v7a,arm64-v8a').split(','))
         }
         externalNativeBuild {
             cmake {

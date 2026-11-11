@@ -12,22 +12,27 @@ git submodule update --init
 
 빌드에는 ROM이 필요 없습니다. ROM은 프로그램을 실행할 때 요청합니다.
 
-## Linux (32비트 x86)
+## Linux
 
-디컴프 런타임이 32비트라서(docs/roadmap.ko.md) 64비트 PC에서는 `-m32`와 32비트 SDL2로 빌드합니다.
 Ubuntu 24.04 기준:
 
 ```sh
-sudo dpkg --add-architecture i386
-sudo apt-get update
-sudo apt-get install gcc-multilib g++-multilib ninja-build libsdl2-dev:i386
-cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$PWD/port/cmake/linux-i686.cmake
+sudo apt-get install build-essential cmake ninja-build libsdl2-dev
+cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 build/acww-kor --rom 경로/한국판.nds
 ```
 
 옵션은 `build/acww-kor --help`로 볼 수 있습니다. `-DSDL_SOURCE_DIR=/SDL/경로`를 주면 시스템 SDL2 대신
-소스 트리에서 SDL2를 빌드합니다.
+소스 트리에서 SDL2를 빌드하고, `-DPORT_FRONT_END=OFF`는 SDL2가 필요 없는 테스트용 프로그램만 빌드합니다.
+
+32비트 x86 빌드는 디컴프의 호스트 코드와 x86 블록 번역기를 그대로 쓰는 유일한 환경입니다(docs/64bit.ko.md).
+
+```sh
+sudo dpkg --add-architecture i386 && sudo apt-get update
+sudo apt-get install gcc-multilib g++-multilib libsdl2-dev:i386
+cmake -S port -B build-i686 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$PWD/port/cmake/linux-i686.cmake
+```
 
 ## Android
 
@@ -40,9 +45,12 @@ cd android
 ./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk
 ```
 
-`-PsdlDir=/SDL/경로`로 다른 곳의 SDL2를, `-PdecompRoot=/acww-decomp/경로`로 다른 디컴프 체크아웃을
-쓸 수 있고, `-Pabis=x86`은 32비트 x86 에뮬레이터 이미지용으로 빌드합니다. release APK는 당분간 debug
-키로 서명됩니다.
+APK에는 `armeabi-v7a`와 `arm64-v8a`가 들어갑니다. `-PsdlDir=/SDL/경로`로 다른 곳의 SDL2를,
+`-PdecompRoot=/acww-decomp/경로`로 다른 디컴프 체크아웃을 쓸 수 있고, `-Pabis=x86_64`는 에뮬레이터
+이미지용으로 빌드합니다. release APK는 당분간 debug 키로 서명됩니다.
+
+휴대폰에서 실행을 시작하지 못하면 앱이 로그의 끝부분을 보여 줍니다. 전체 로그는 앱 파일의
+`log.txt`입니다(`log-1.txt`는 그 전 실행).
 
 ## 테스트
 
@@ -55,6 +63,13 @@ python3 port/tests/test_rom_prep.py build/acww-rom-prep
 ROM이 아닌 파일, 없는 파일)도 확인합니다. CI가 푸시할 때마다 이 테스트와 두 플랫폼 빌드를 돌립니다
 (`.github/workflows/build.yml`).
 
+```sh
+python3 port/tests/test_frames.py 경로/한국판.nds build
+```
+
+디컴프의 녹화를 빌드에서 재생해 프레임을 디컴프의 것과 비트 단위로 비교합니다. ROM이 필요하므로 직접
+돌려야 합니다. 통과한 환경과 qemu-user로 ARM용을 돌리는 방법은 docs/64bit.ko.md에 있습니다.
+
 ## 구성
 
 | 경로 | 내용 |
@@ -65,5 +80,6 @@ ROM이 아닌 파일, 없는 파일)도 확인합니다. CI가 푸시할 때마�
 | `port/src/touch.c` | 터치 버튼과 화면 배치 |
 | `port/src/rom_prep.c` | ROM 확인과 모듈 분리 |
 | `port/src/native_os_portable.c` | 디컴프의 x86 전용 호스트 코드를 대신하는 코드 |
-| `port/compat/port_compat.h` | 디컴프 소스마다 강제로 포함. Android C 라이브러리 대응 |
+| `port/compat/` | 디컴프 소스에 강제로 포함하는 헤더. Android C 라이브러리, 64비트 환경 대응 |
+| `port/tests/` | ROM 분리를 디컴프와 비교(ROM 불필요), 프레임을 디컴프와 비교(본인 ROM 필요) |
 | `android/` | Gradle 프로젝트: `LaunchActivity`(ROM 요청), `MainActivity`(SDL) |

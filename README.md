@@ -18,9 +18,9 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.1.0).** The program builds for Android and Linux, and the ROM handling is
-> tested, but the game has **not yet been run on a phone**. Sound is not there yet, and the
-> APK installs only on phones that can run 32-bit apps. See the [roadmap](docs/roadmap.md).
+> **Early days (0.2.0).** The game runs in the port, and its frames are the decomp's own bit
+> for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)). It has **not yet
+> been run on a real phone**, and there is no sound yet. See the [roadmap](docs/roadmap.md).
 
 ## What it is
 
@@ -37,8 +37,8 @@ This repository adds what the other platforms need, without changing the decomp 
   pacing and the save file;
 - the **ROM check and split** done on the device (`port/src/rom_prep.c`, the same split as the
   decomp's `tools/extract.py`, tested against it);
-- small **stand-ins** for the decomp's x86-only host code, so its runtime builds for ARM
-  (`port/src/native_os_portable.c`, `port/compat/port_compat.h`);
+- small **stand-ins** for the decomp's x86-only host code, so its runtime builds for ARM and
+  for 64-bit hosts (`port/src/native_os_portable.c`, `port/compat/`; [docs/64bit.md](docs/64bit.md));
 - an **Android app** (`android/`): asks for the ROM once, then starts the game;
 - **CI** that builds both and runs the tests on every push.
 
@@ -52,8 +52,8 @@ its artifacts. There are no releases yet.
 
 | Platform | Needs |
 |---|---|
-| Android | Android 5.0 or later, a phone that runs 32-bit (`armeabi-v7a`) apps, OpenGL ES 2.0 |
-| Linux | 32-bit x86 SDL2 (`libsdl2-2.0-0:i386`) on x86 Linux |
+| Android | Android 5.0 or later, ARM 32- or 64-bit, OpenGL ES 2.0 |
+| Linux | x86-64 with SDL2 (`libsdl2-2.0-0`); a 32-bit x86 build is made too |
 
 On Android, the first start asks for the ROM file and copies it into the app's storage. On
 Linux, `acww-kor --rom path/to/your.nds`. Building yourself: [docs/building.md](docs/building.md).

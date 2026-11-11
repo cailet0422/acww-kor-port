@@ -1,5 +1,6 @@
-# Builds the port on every push: the 32-bit Linux program with the ROM-split test, and the
-# Android APK (armeabi-v7a). No ROM is used or needed (docs/building.md).
+# Builds the port on every push: the Linux programs (x86-64 and 32-bit x86) with the ROM-split
+# test, and the Android APK (armeabi-v7a and arm64-v8a). No ROM is used or needed; the frame
+# check, which needs one, is run by hand (docs/building.md).
 name: build
 
 on:
@@ -8,20 +9,30 @@ on:
   workflow_dispatch:
 
 jobs:
-  linux-i686:
+  linux:
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            packages: libsdl2-dev
+            cmake: ""
+          - arch: i686
+            packages: gcc-multilib g++-multilib libsdl2-dev:i386
+            cmake: -DCMAKE_TOOLCHAIN_FILE=port/cmake/linux-i686.cmake
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: true
-      - name: 32-bit toolchain and SDL2
+      - name: Toolchain and SDL2
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update
-          sudo apt-get install -y gcc-multilib g++-multilib ninja-build libsdl2-dev:i386
+          sudo apt-get install -y ninja-build ${{ matrix.packages }}
       - name: Build
         run: |
-          cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$PWD/port/cmake/linux-i686.cmake
+          cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake }}
           cmake --build build
       - name: ROM split against the decomp's extract.py
         run: python3 port/tests/test_rom_prep.py build/acww-rom-prep
@@ -32,8 +43,32 @@ jobs:
           test $? -eq 1
       - uses: actions/upload-artifact@v4
         with:
-          name: acww-kor-linux-i686
+          name: acww-kor-linux-${{ matrix.arch }}
           path: build/acww-kor
+
+  # The headless programs for ARM, so the cross builds docs/64bit.md checks stay buildable.
+  linux-arm:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: Cross compilers and qemu
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf qemu-user
+      - name: Build and test the ROM split
+        run: |
+          for arch in aarch64 armhf; do
+            cmake -S port -B build-$arch -G Ninja -DCMAKE_BUILD_TYPE=Release -DPORT_FRONT_END=OFF \
+              -DCMAKE_TOOLCHAIN_FILE=port/cmake/linux-$arch.cmake
+            cmake --build build-$arch
+          done
+          printf '#!/bin/sh\nexec qemu-aarch64 -L /usr/aarch64-linux-gnu build-aarch64/acww-rom-prep "$@"\n' > rom-prep-aarch64
+          printf '#!/bin/sh\nexec qemu-arm -L /usr/arm-linux-gnueabihf build-armhf/acww-rom-prep "$@"\n' > rom-prep-armhf
+          chmod +x rom-prep-aarch64 rom-prep-armhf
+          python3 port/tests/test_rom_prep.py ./rom-prep-aarch64
+          python3 port/tests/test_rom_prep.py ./rom-prep-armhf
 
   android:
     runs-on: ubuntu-24.04
@@ -53,8 +88,8 @@ jobs:
         working-directory: android
         run: ./gradlew --no-daemon assembleRelease
       - name: Name it
-        run: cp android/app/build/outputs/apk/release/app-release.apk "acww-kor-port-$(cat port/VERSION)-armeabi-v7a.apk"
+        run: cp android/app/build/outputs/apk/release/app-release.apk "acww-kor-port-$(cat port/VERSION).apk"
       - uses: actions/upload-artifact@v4
         with:
           name: acww-kor-port-android
-          path: acww-kor-port-*-armeabi-v7a.apk
+          path: acww-kor-port-*.apk

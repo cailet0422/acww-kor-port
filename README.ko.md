@@ -17,9 +17,9 @@
 > 게임 코드는 기기에서 이 ROM으로부터 읽어 오며, 이 저장소나 빌드에는 ROM의 내용이 전혀 들어 있지 않습니다.
 
 > [!WARNING]
-> **초기 단계입니다(0.1.0).** Android와 Linux용 빌드가 되고 ROM 처리도 테스트했지만,
-> **실제 휴대폰에서 게임을 돌려 본 적은 아직 없습니다.** 소리도 아직 나지 않고, APK는 32비트 앱을
-> 실행할 수 있는 휴대폰에만 설치됩니다. [로드맵](docs/roadmap.ko.md)을 참고하세요.
+> **초기 단계입니다(0.2.0).** 포트에서 게임이 실행되고, x86과 ARM, 32비트와 64비트 모두에서 프레임이
+> 디컴프의 것과 비트 단위로 같습니다([docs/64bit.ko.md](docs/64bit.ko.md)). 다만 **실제 휴대폰에서는
+> 아직 돌려 보지 않았고**, 소리도 아직 없습니다. [로드맵](docs/roadmap.ko.md)을 참고하세요.
 
 ## 무엇인가
 
@@ -34,8 +34,8 @@ PC에서 실행하는 런타임을 갖고 있습니다. 모든 함수는 인터�
   마우스, 게임패드, 화면 둘레에 그리는 터치 버튼, 프레임 속도 맞춤, 세이브 파일을 맡습니다.
 - **ROM 확인과 분리**를 기기에서 합니다(`port/src/rom_prep.c`). 디컴프의 `tools/extract.py`와
   같은 방식으로 나누며, 그 결과와 같은지 테스트합니다.
-- 디컴프의 x86 전용 호스트 코드를 대신하는 **작은 대체 코드**를 둬서 런타임이 ARM용으로 빌드되게
-  합니다(`port/src/native_os_portable.c`, `port/compat/port_compat.h`).
+- 디컴프의 x86 전용 호스트 코드를 대신하는 **작은 대체 코드**를 둬서 런타임이 ARM과 64비트 환경용으로
+  빌드되게 합니다(`port/src/native_os_portable.c`, `port/compat/`, [docs/64bit.ko.md](docs/64bit.ko.md)).
 - **Android 앱**(`android/`): 처음 한 번 ROM을 고르게 한 뒤 게임을 시작합니다.
 - 푸시할 때마다 둘 다 빌드하고 테스트를 돌리는 **CI**.
 
@@ -49,8 +49,8 @@ PC에서 실행하는 런타임을 갖고 있습니다. 모든 함수는 인터�
 
 | 플랫폼 | 필요한 것 |
 |---|---|
-| Android | Android 5.0 이상, 32비트(`armeabi-v7a`) 앱을 실행할 수 있는 휴대폰, OpenGL ES 2.0 |
-| Linux | x86 Linux에 32비트 x86 SDL2(`libsdl2-2.0-0:i386`) |
+| Android | Android 5.0 이상, ARM 32비트 또는 64비트, OpenGL ES 2.0 |
+| Linux | x86-64와 SDL2(`libsdl2-2.0-0`). 32비트 x86 빌드도 함께 만들어짐 |
 
 Android에서는 처음 실행할 때 ROM 파일을 고르면 앱 저장공간으로 복사합니다. Linux에서는
 `acww-kor --rom 경로/한국판.nds`로 실행합니다. 직접 빌드하는 방법은 [docs/building.ko.md](docs/building.ko.md)에 있습니다.

@@ -12,22 +12,29 @@ git submodule update --init
 
 No ROM is needed to build; the program asks for it when it starts.
 
-## Linux (32-bit x86)
+## Linux
 
-The decomp's runtime is 32-bit (docs/roadmap.md), so on a 64-bit machine the program is built
-with `-m32` against the 32-bit SDL2. On Ubuntu 24.04:
+On Ubuntu 24.04:
 
 ```sh
-sudo dpkg --add-architecture i386
-sudo apt-get update
-sudo apt-get install gcc-multilib g++-multilib ninja-build libsdl2-dev:i386
-cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$PWD/port/cmake/linux-i686.cmake
+sudo apt-get install build-essential cmake ninja-build libsdl2-dev
+cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 cmake --build build
 build/acww-kor --rom path/to/your.nds
 ```
 
 `build/acww-kor --help` lists the options. `-DSDL_SOURCE_DIR=/path/to/SDL` builds SDL2 from a
-source tree instead of using the system's.
+source tree instead of using the system's; `-DPORT_FRONT_END=OFF` builds only the headless
+test programs, which need no SDL2.
+
+The 32-bit x86 build is the one host with the decomp's own host code and its x86 block
+translator (docs/64bit.md):
+
+```sh
+sudo dpkg --add-architecture i386 && sudo apt-get update
+sudo apt-get install gcc-multilib g++-multilib libsdl2-dev:i386
+cmake -S port -B build-i686 -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE=$PWD/port/cmake/linux-i686.cmake
+```
 
 ## Android
 
@@ -40,9 +47,12 @@ cd android
 ./gradlew assembleRelease      # app/build/outputs/apk/release/app-release.apk
 ```
 
-`-PsdlDir=/path/to/SDL` uses an SDL2 tree elsewhere, `-PdecompRoot=/path/to/acww-decomp` another
-decomp checkout, and `-Pabis=x86` builds for a 32-bit x86 emulator image. The release APK is
-signed with the debug key for now.
+The APK holds `armeabi-v7a` and `arm64-v8a`. `-PsdlDir=/path/to/SDL` uses an SDL2 tree
+elsewhere, `-PdecompRoot=/path/to/acww-decomp` another decomp checkout, and `-Pabis=x86_64`
+builds for an emulator image. The release APK is signed with the debug key for now.
+
+When a run cannot start on a phone, the app shows the end of its log; the whole of it is
+`log.txt` in the app's files (`log-1.txt` is the run before).
 
 ## Tests
 
@@ -55,6 +65,14 @@ with the port's C code and with the decomp's `tools/extract.py`, and compares th
 for byte; it also checks the refusals (another release, not a ROM, no file). CI runs it, and
 builds both platforms, on every push (`.github/workflows/build.yml`).
 
+```sh
+python3 port/tests/test_frames.py path/to/your.nds build
+```
+
+Plays the decomp's recordings in the build and compares the frames with the decomp's, bit for
+bit. It needs the ROM, so it is run by hand; docs/64bit.md has the hosts it has passed on and
+how to run it for ARM under qemu-user.
+
 ## Layout
 
 | Path | What |
@@ -65,5 +83,6 @@ builds both platforms, on every push (`.github/workflows/build.yml`).
 | `port/src/touch.c` | the touch buttons and the screens' layout |
 | `port/src/rom_prep.c` | the ROM check and the split into modules |
 | `port/src/native_os_portable.c` | stand-ins for the decomp's x86-only host code |
-| `port/compat/port_compat.h` | force-included into the decomp's sources: Android's C library |
+| `port/compat/` | headers force-included into the decomp's sources: Android's C library, 64-bit hosts |
+| `port/tests/` | the ROM split against the decomp's (no ROM needed), the frames against the decomp's (your ROM) |
 | `android/` | the Gradle project: `LaunchActivity` (asks for the ROM), `MainActivity` (SDL) |

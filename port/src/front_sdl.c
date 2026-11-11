@@ -28,6 +28,7 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
 #include "arm7.h"
 #include "frame.h"
@@ -101,6 +102,64 @@ static void tell(const char *title, const char *text)
 {
     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "%s: %s", title, text);
     SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, title, text, NULL);
+}
+
+/* The log ------------------------------------------------------------------------------------ */
+
+/* On Android nothing shows a program's stdout and stderr, where the runtime reports what it
+ * does and why a run stops: both go to DATA/log.txt (the last run's as log-1.txt), and what
+ * SDL_Log writes goes there too. When a run cannot start, the end of the file is what the
+ * player is shown. */
+static char log_path[PATH_SIZE + 16];
+
+#ifdef __ANDROID__
+static void log_to_file(void *unused, int category, SDL_LogPriority priority, const char *message)
+{
+    (void) unused;
+    (void) category;
+    fprintf(stderr, "%s%s\n", priority >= SDL_LOG_PRIORITY_ERROR ? "ERROR: " : "", message);
+    fflush(stderr);
+}
+#endif
+
+static void log_open(void)
+{
+#ifdef __ANDROID__
+    char last[PATH_SIZE + 16];
+    snprintf(log_path, sizeof(log_path), "%s/log.txt", opt.data);
+    snprintf(last, sizeof(last), "%s/log-1.txt", opt.data);
+    rename(log_path, last);
+    if (freopen(log_path, "w", stderr) != NULL) {
+        dup2(fileno(stderr), fileno(stdout));
+        setvbuf(stdout, NULL, _IOLBF, 0);
+        setvbuf(stderr, NULL, _IOLBF, 0);
+        SDL_LogSetOutputFunction(log_to_file, NULL);
+    } else {
+        log_path[0] = 0;
+    }
+#endif
+}
+
+/* the last `size - 1` bytes of the log, from the start of a line */
+static void log_tail(char *out, size_t size)
+{
+    out[0] = 0;
+    fflush(stdout);
+    fflush(stderr);
+    FILE *f = log_path[0] != 0 ? fopen(log_path, "rb") : NULL;
+    if (f == NULL) {
+        return;
+    }
+    fseek(f, 0, SEEK_END);
+    long end = ftell(f), from = end > (long) size - 1 ? end - ((long) size - 1) : 0;
+    fseek(f, from, SEEK_SET);
+    size_t n = fread(out, 1, size - 1, f);
+    fclose(f);
+    out[n] = 0;
+    char *line = from > 0 ? strchr(out, '\n') : NULL;
+    if (line != NULL) {
+        memmove(out, line + 1, strlen(line + 1) + 1);
+    }
 }
 
 /* Shared state ------------------------------------------------------------------------------ */
@@ -677,6 +736,8 @@ int main(int argc, char **argv)
         opt.scale = 2;
     }
     mkdir(opt.data, 0700);
+    log_open();
+    SDL_Log("acww-kor-port %s, %d-bit", PORT_VERSION, (int) (8 * sizeof(void *)));
     snprintf(opt.rom, sizeof(opt.rom), "%s", rom != NULL ? rom : "");
     if (rom == NULL) {
         snprintf(opt.rom, sizeof(opt.rom), "%s/game.nds", opt.data);
@@ -743,6 +804,8 @@ int main(int argc, char **argv)
     char instructions[] = "0";
     char *run_argv[] = {argv[0], rom_used, opt.manifest, symbols, instructions, NULL};
     int code = run_main(5, run_argv);
-    tell("acww-kor-port", "The run could not start; the log says why.");
+    char text[1600] = "게임을 시작하지 못했습니다. / The run could not start.\n\n";
+    log_tail(text + strlen(text), 1200);
+    tell("acww-kor-port", text);
     return code;
 }

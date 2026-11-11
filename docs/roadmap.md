@@ -2,56 +2,67 @@
 
 # Roadmap
 
-What the port does now, what stands between it and a game that plays well on any phone, and the
-order the work goes in. The facts about the decomp are from `decomp/` at the pinned commit
-(`docs/runtime.md`, `docs/play.md` and the runtime's sources there).
+What the port does now and the order the rest goes in. The facts about the decomp are from
+`decomp/` at the pinned commit (`docs/runtime.md`, `docs/play.md` and the runtime's sources).
 
-## Where it stands (0.1.0)
+## Where it stands (0.2.0)
 
 | | State |
 |---|---|
-| Linux, 32-bit x86 | builds and links (CI); refuses a missing or wrong ROM with the reason |
-| Android, `armeabi-v7a` | the APK builds (CI); **not yet run on a device** |
-| ROM check and split | the same modules as the decomp's `tools/extract.py`, byte for byte, on synthetic ROMs (`port/tests/test_rom_prep.py`); the SHA-1 is checked against Python's |
-| The game itself | untested on the port: the build environment has neither the ROM nor a phone |
-| Sound | none (below) |
-| 64-bit phones | cannot install it (below) |
+| The game in the port | runs; the decomp's recordings give the decomp's frames, bit for bit, on x86 and ARM, 32- and 64-bit ([64bit.md](64bit.md)) |
+| Android APK | `armeabi-v7a` and `arm64-v8a`, built by CI; **not yet run on a real phone** |
+| Linux | x86-64 and 32-bit x86, built by CI |
+| ROM check and split | the same modules as the decomp's `tools/extract.py`, byte for byte (`port/tests/test_rom_prep.py`) |
+| Speed | the interpreter alone ran 2 to 3 times the DS's speed on a server CPU; on phones, to be measured |
+| Sound | none yet |
 
 ## What the decomp's runtime assumes
 
-1. **A 32-bit process.** `runtime/memory.c` stops the build on anything else (`#error "the
-   runtime is a 32-bit program: DS addresses are host pointers"`): the DS's main RAM, ITCM and
-   DTCM are mapped at the DS's own addresses (`0x02000000`, ...) and the interpreter uses DS
-   addresses as pointers. So the port builds for `armeabi-v7a` (and `x86` for an emulator) only.
-   Many phones released since 2023 run only 64-bit apps and cannot install it.
+1. **DS addresses are host pointers.** The DS's memory is mapped at its own addresses, and
+   `runtime/memory.c` builds only for 32 bits. The Reference form works in a 64-bit process
+   all the same; the port builds it there and checks its frames ([64bit.md](64bit.md)).
 2. **x86 for the compiled forms.** The Native and Clean forms call compiled functions with x86
-   conventions (`runtime/host.c` stops on other hosts), catch calls into DS code through x86
-   fault frames (`REG_EIP` in `runtime/native_os.c`), patch x86 jumps into code, and enter the
-   interpreter through x86 assembly (`runtime/native_tramp.S`). The port replaces those files
-   with stand-ins that only keep the Reference form working.
-3. **The interpreter's speed-up is x86 code.** Hot blocks are translated to x86 code
-   (`runtime/arm_x86.c`, only on `__i386__`). On ARM every instruction is interpreted.
-4. **Win32 for the window and sound.** `runtime/play.c` (the window) and the device part of
-   `runtime/sound.c` (`waveOut`) are Windows-only; the mixer itself is not.
-5. **glibc details.** `memfd_create` (in Android's C library only from API 30) and
-   `fseeko`/`ftello` under `_DEFAULT_SOURCE`: `port/compat/port_compat.h` covers both.
+   conventions (`runtime/host.c`), catch calls into DS code through x86 fault frames
+   (`runtime/native_os.c`), patch x86 jumps into code and enter the interpreter through x86
+   assembly (`runtime/native_tramp.S`). The port runs the Reference form and replaces those
+   files with stand-ins.
+3. **The interpreter's speed-up is x86 code** (`runtime/arm_x86.c`, 32-bit x86 only). On ARM
+   every instruction is interpreted.
+4. **Win32 for the window and sound.** `runtime/play.c` and the device part of
+   `runtime/sound.c` (`waveOut`); the mixer itself is portable.
+5. **A software renderer at the DS's size.** Both screens are drawn by the runtime at
+   256 x 192 (`runtime/gpu2d.c`, `runtime/gpu3d.c`).
+6. **Wireless between its own consoles only.** The runtime simulates the DS's wireless manager
+   for runs of two consoles side by side on one PC, exchanging frames through pipes, and Wi-Fi
+   Connection against servers simulated inside the process (`docs/multi-console.md`). None of
+   it reaches a network, and the window (`play.c`) plays one console alone.
 
-## Next
+## The plan, in order
 
-1. **Run it on phones.** Check that the DS's addresses can be mapped in a 32-bit Android app
-   (they are low addresses Android does not normally use, but nothing promises it), measure
-   the interpreter's speed on ARM, and fix what breaks. Then tune the touch buttons, and let the
-   player import and export the save and change the ROM from the app.
-2. **Sound.** An SDL audio device for the decomp's mixer (`runtime/sound.h`, `runtime/ds_audio.h`),
-   in place of the `waveOut` part.
-3. **Speed, if the interpreter is too slow on phones.** In order of effort: compiler flags and
-   profiling; an ARM version of the block translator (`arm_x86.c` shows the shape); the Native
-   and Clean forms on ARM, which need an ARM `host_invoke` (AAPCS calls), ARM fault frames, and
-   fibers without `makecontext` (Android's C library has none).
-4. **64-bit phones.** The large one. The Reference form needs the interpreter's memory accesses
-   to go through a base address instead of using DS addresses as host pointers. The compiled
-   forms are harder: the decomp's structures hold 32-bit DS pointers. This needs the decomp's
-   maintainers, as the decomp's own docs keep porting work in a separate project.
-5. **Upstream.** Small changes to the decomp that let its runtime build on non-x86 hosts as it
-   is (guards around `host.c`, `native_tramp.S` and the x86 fault code), so the port's stand-ins
-   shrink.
+1. **64-bit phones.** Done in 0.2.0, as far as it can be checked without a phone. Next: run it
+   on real phones, measure the speed, fix what breaks.
+2. **A phone's way of playing.**
+   - portrait first, and a full-touch mode: the game played with the stylus alone, no buttons drawn;
+   - every screen shape (tall phones, tablets, foldables, cutouts) and no borders around the screens;
+   - autosave, and Mr. Resetti on or off: both need the game's own code found in the decomp
+     (the save routine, and the check that sends Resetti after a reset).
+3. **Sound.** An SDL audio device for the decomp's mixer (`runtime/sound.h`, `runtime/ds_audio.h`).
+4. **A Vulkan renderer.** The DS's 3D engine drawn by the GPU, so the 3D scene comes out at the
+   phone's own resolution, with antialiasing; the 2D layers scaled over it. OpenGL ES stays as
+   the fallback. This replaces the software renderer's output, so the frame checks need a
+   mode of their own (the software renderer stays the reference).
+5. **Playing together.**
+   - port players with each other: the decomp's simulated local wireless carried over the
+     network instead of pipes between processes;
+   - Nintendo Wi-Fi Connection through the game's own network code: the decomp's simulated
+     access point opened to the real network, with the server chosen by DNS, so a private
+     server works as it does on a console, and port and console players meet on the same server;
+   - a server of the project's own for port players;
+   - the console's settings the game reads (the user's name, birthday, the Wi-Fi connection's
+     identity) are made by the port from scratch: no firmware or NAND image is used or read.
+   - DS-to-DS local wireless with a real console is out of reach: a phone cannot send or receive
+     the DS's radio protocol.
+6. **Speed, where a phone needs it.** Profiling first; then an ARM block translator
+   (`arm_x86.c` shows the shape), or the compiled forms on ARM.
+7. **Upstream.** Small changes to the decomp so its runtime builds on other hosts as it is,
+   and the port's stand-ins shrink.
