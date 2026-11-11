@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.6.3).** The game runs in the port, on phones too, and its frames are the
+> **Early days (0.7.0).** The game runs in the port, on phones too, and its frames are the
 > decomp's own bit for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)).
 > Sound: [docs/sound.md](docs/sound.md). See the [roadmap](docs/roadmap.md).
 
@@ -75,7 +75,7 @@ Linux, `acww-kor --rom path/to/your.nds`. Building yourself: [docs/building.md](
 | touch screen | mouse on the lower screen | | a finger on the lower screen |
 
 On Android the mark with three dots opens the settings (in Korean, or English where the
-system is in English): sound, Mr. Resetti, the full-touch mode (no buttons, the stylus alone),
+system is in English): sound, autosave, Mr. Resetti, the full-touch mode (no buttons, the stylus alone),
 the tall view, the arranging of the buttons, the save exported and imported, another ROM.
 Arranging, drag each button where you want it, the picture included, make the one you touched
 last smaller or larger with − and +, put all back with RESET, and close with the tick; tall
@@ -84,8 +84,11 @@ screen elsewhere, a tap on the mark turns the buttons off and on and a hold open
 arranging.) Tab held
 runs as fast as the machine can; F12 saves the screens as a PNG next to the save.
 
-Mr. Resetti does not come after a play that ended without a save (`resetti=1` in
-`settings.txt`, or `--resetti`, brings him back as on a DS).
+The port saves the town by itself, every minute the game would let you save and when you
+leave the app, to a file beside the save; the next start asks whether to go on from it
+([docs/autosave.md](docs/autosave.md); `autosave=0` or `--no-autosave` turns it off). Mr.
+Resetti does not come after a play that ended without a save (`resetti=1` in `settings.txt`,
+or `--resetti`, brings him back as on a DS).
 
 The save is a 256 KB flash image (the `.sav` format emulators use): `acww.sav` in the app's
 files on Android, in `~/.local/share/acww-kor-port/acww-kor/` on Linux (`--data` and a save path

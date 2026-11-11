@@ -7,6 +7,10 @@
     <string name="rom_copy_failed">The file could not be copied. Try again.</string>
     <string name="exit_ask">Leave the game?\nProgress not saved in the game is lost.</string>
     <string name="exit_yes">Leave</string>
+    <string name="settings_autosave">Autosave: the town is saved aside whenever the game would let you save (every minute, and when you leave the app), and the next start asks whether to go on from it</string>
+    <string name="autosave_ask">There is an autosave (%1$s).\nIt is newer than the last save made in the game. Where do you want to go on from?</string>
+    <string name="autosave_yes">The autosave</string>
+    <string name="autosave_no">My own save</string>
     <string name="settings_title">Settings</string>
     <string name="settings_resetti">Mr. Resetti comes after quitting without saving</string>
     <string name="settings_full_touch">Full-touch mode (touch buttons hidden)</string>

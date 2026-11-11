@@ -1,5 +1,6 @@
 package io.github.cailet0422.acwwkor;
 
+import android.app.AlertDialog;
 import android.app.Activity;
 import android.content.Intent;
 import android.net.Uri;
@@ -12,6 +13,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 
 import java.io.File;
+import java.text.DateFormat;
+import java.util.Date;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -119,7 +122,38 @@ public class LaunchActivity extends Activity {
         return part.renameTo(rom());
     }
 
+    /** The game, after a word about the port's own save if there is one (port/src/autosave.c:
+     *  files/acww.sav.auto, the town as it was when the app was last left, newer than the save
+     *  made in the game): the player says which to go on from. Going on from it makes it the
+     *  save, and the one it replaces is kept as acww.sav.before-auto. */
     private void startGame() {
+        File auto = new File(getFilesDir(), "acww.sav.auto");
+        if (MainActivity.running || !auto.isFile()) {
+            launch();
+            return;
+        }
+        String when = DateFormat.getDateTimeInstance(DateFormat.MEDIUM, DateFormat.SHORT).format(new Date(auto.lastModified()));
+        new AlertDialog.Builder(this)
+                .setMessage(getString(R.string.autosave_ask, when))
+                .setCancelable(false)
+                .setPositiveButton(R.string.autosave_yes, (d, w) -> {
+                    File save = new File(getFilesDir(), "acww.sav");
+                    File before = new File(getFilesDir(), "acww.sav.before-auto");
+                    if (save.isFile()) {
+                        before.delete();
+                        save.renameTo(before);
+                    }
+                    auto.renameTo(save);
+                    launch();
+                })
+                .setNegativeButton(R.string.autosave_no, (d, w) -> {
+                    auto.delete();
+                    launch();
+                })
+                .show();
+    }
+
+    private void launch() {
         startActivity(new Intent(this, MainActivity.class));
         finish();
     }

@@ -2,6 +2,7 @@ package io.github.cailet0422.acwwkor;
 
 import android.app.AlertDialog;
 import android.content.Intent;
+import android.os.Bundle;
 
 import org.libsdl.app.SDLActivity;
 
@@ -14,7 +15,23 @@ public class MainActivity extends SDLActivity {
         return new String[] {"SDL2", "main"};
     }
 
+    /** Whether the game is running in this process (LaunchActivity asks before it offers the
+     *  autosave: a running game's files are its own). */
+    static volatile boolean running;
+
     private AlertDialog exitDialog;
+
+    @Override
+    protected void onCreate(Bundle saved) {
+        running = true;
+        super.onCreate(saved);
+    }
+
+    @Override
+    protected void onDestroy() {
+        running = false;
+        super.onDestroy();
+    }
 
     /** Called by the game (front_sdl.c, back_pressed) from its own thread when Back is pressed:
      *  asks, and on a yes has the game write its save file and end (SDL_QUIT). */

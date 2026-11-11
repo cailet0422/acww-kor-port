@@ -39,6 +39,7 @@
 #include "run.h"
 #include "sound.h"
 
+#include "autosave.h"
 #include "front.h"
 #include "game_hooks.h"
 #include "mix2d.h"
@@ -63,6 +64,7 @@ static struct {
     int sound;           /* the game's sound through the audio device */
     int resolution;      /* the 3D scene at this many times the DS's size (1 to 3) */
     int resetti;         /* Mr. Resetti comes after a play without a save, as on a DS */
+    int autosave;        /* the port saves the town by itself (autosave.c) */
     int no_above;        /* the game's own choice of what to draw above its screen (--no-above) */
     const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
     int width, height;   /* the window's starting size (--size), else by --scale */
@@ -94,6 +96,11 @@ static void usage(void)
             "                  RUN_AUDIO_WAV). Its header says 32768 Hz; the frames are the DS's\n"
             "                  32728.5 a second\n"
             "  --touch         draw the touch buttons even without a touch screen\n"
+            "  --autosave, --no-autosave  whether the port saves the town by itself, every minute\n"
+            "                  the game would let you save, to SAVE.auto beside the save (default:\n"
+            "                  it does; \"autosave=0\" in DATA/settings.txt keeps it off)\n"
+            "  --load-autosave go on from SAVE.auto: it becomes the save (the old one is kept as\n"
+            "                  SAVE.before-auto)\n"
             "  --resetti, --no-resetti  whether Mr. Resetti comes after a play that ended without a\n"
             "                  save (default: he does not; \"resetti=1\" in DATA/settings.txt keeps it)\n"
             "  --full-touch    start without the touch buttons (the stylus alone); the mark at the\n"
@@ -287,6 +294,111 @@ static void at_exit(void)
     save_flush("at exit");
 }
 
+/* The port's own save (autosave.c, docs/autosave.md) ---------------------------------------- */
+
+/* The town is saved beside the game's save file, as SAVE.auto: a whole image of the save
+ * memory, with the town as it was at a moment the game would have let the player save. The
+ * game's own file is never touched by it. At the next start the player is asked which to go
+ * on from (LaunchActivity on Android; --load-autosave elsewhere), and the game's own save,
+ * whenever it is made, takes the autosave away: it is the newer of the two. */
+#define AUTOSAVE_EVERY (60 * 60) /* frames between saves: a minute */
+#define AUTOSAVE_QUIET 30        /* frames the moment has to have lasted */
+
+static uint32_t autosave_quiet_frames, autosave_frame;
+static int autosave_taken;
+
+static void autosave_path(char *out, size_t size)
+{
+    snprintf(out, size, "%s.auto", opt.save);
+}
+
+static void autosave_take(const char *why)
+{
+    static uint8_t card[AUTOSAVE_CARD_SIZE];
+    char path[PATH_SIZE + 16], tmp[PATH_SIZE + 24];
+    uint64_t writes;
+    const uint8_t *image = arm7_backup(&writes);
+    if (image == NULL || ARM7_BACKUP_SIZE != AUTOSAVE_CARD_SIZE) {
+        return;
+    }
+    memcpy(card, image, AUTOSAVE_CARD_SIZE);
+    if (autosave_snapshot(card) != 0) {
+        return;
+    }
+    autosave_path(path, sizeof(path));
+    snprintf(tmp, sizeof(tmp), "%s.tmp", path);
+    FILE *f = fopen(tmp, "wb");
+    if (f == NULL || fwrite(card, 1, AUTOSAVE_CARD_SIZE, f) != AUTOSAVE_CARD_SIZE || fclose(f) != 0 || rename(tmp, path) != 0) {
+        SDL_Log("play: cannot write %s", path);
+        return;
+    }
+    autosave_frame = frame_now;
+    autosave_taken = 1;
+    SDL_Log("play: frame %u: autosave %s (%s)", frame_now, path, why);
+}
+
+/* Once a frame. */
+static void autosave_frame_step(uint32_t frame)
+{
+    if (!opt.autosave || opt.read_only) {
+        return;
+    }
+    const char *why;
+    static const char *why_before;
+    autosave_quiet_frames = autosave_quiet(&why) ? autosave_quiet_frames + 1 : 0;
+    if (why != why_before && getenv("PORT_AUTOSAVE_TRACE") != NULL) {
+        SDL_Log("play: frame %u: autosave: %s", frame, *why ? why : "a quiet moment");
+    }
+    why_before = why;
+    if (autosave_quiet_frames >= AUTOSAVE_QUIET && (!autosave_taken || frame - autosave_frame >= AUTOSAVE_EVERY)) {
+        autosave_take("a quiet moment");
+    }
+}
+
+/* The app is about to be out of sight, where the system may end it: a save now, if the
+ * moment allows; the last one stands otherwise. */
+static void autosave_leaving(void)
+{
+    if (opt.autosave && !opt.read_only && autosave_quiet_frames >= AUTOSAVE_QUIET) {
+        autosave_take("the app went to the background");
+    }
+}
+
+/* The game wrote its own save: that is the newer one. */
+static void autosave_game_saved(void)
+{
+    char path[PATH_SIZE + 16];
+    autosave_path(path, sizeof(path));
+    if (!opt.read_only && remove(path) == 0) {
+        SDL_Log("play: the game saved: the autosave is taken away");
+    }
+    autosave_frame = frame_now;
+    autosave_taken = 1; /* a minute until the next */
+}
+
+/* At the start: with `load`, the autosave becomes the save the game loads (the save it
+ * replaces is kept as SAVE.before-auto). */
+static void autosave_at_start(int load)
+{
+    char path[PATH_SIZE + 16], kept[PATH_SIZE + 24];
+    autosave_path(path, sizeof(path));
+    if (!file_exists(path)) {
+        return;
+    }
+    if (!load || opt.read_only) {
+        SDL_Log("play: there is an autosave, %s; --load-autosave goes on from it", path);
+        return;
+    }
+    snprintf(kept, sizeof(kept), "%s.before-auto", opt.save);
+    if (file_exists(opt.save)) {
+        remove(kept);
+        rename(opt.save, kept);
+    }
+    if (rename(path, opt.save) == 0) {
+        SDL_Log("play: going on from the autosave (the save before it: %s)", kept);
+    }
+}
+
 /* Settings ---------------------------------------------------------------------------------- */
 
 /* What the player chose while playing, kept in DATA/settings.txt as "name=value" lines. */
@@ -317,6 +429,8 @@ static void settings_load(void)
             opt.full_touch = v != 0;
         } else if (sscanf(line, "resetti=%d", &v) == 1) {
             opt.resetti = v != 0;
+        } else if (sscanf(line, "autosave=%d", &v) == 1) {
+            opt.autosave = v != 0;
         } else if (sscanf(line, "tall=%d", &v) == 1) {
             tall_setting = v != 0;
         } else if (sscanf(line, "sound=%d", &v) == 1) {
@@ -340,6 +454,7 @@ static void settings_save(void)
     if (f != NULL) {
         fprintf(f, "full_touch=%d\n", opt.full_touch);
         fprintf(f, "resetti=%d\n", opt.resetti);
+        fprintf(f, "autosave=%d\n", opt.autosave);
         fprintf(f, "tall=%d\n", tall_setting);
         fprintf(f, "sound=%d\n", opt.sound);
         fprintf(f, "resolution=%d\n", resolution_setting);
@@ -793,6 +908,7 @@ static void handle(const SDL_Event *e)
         case SDL_APP_WILLENTERBACKGROUND:
         case SDL_APP_TERMINATING:
             save_flush("the app went to the background");
+            autosave_leaving();
             break;
         case SDL_KEYDOWN:
             if (e->key.keysym.sym == SDLK_TAB) {
@@ -1110,7 +1226,9 @@ static void on_frame(uint32_t frame)
         save_quiet_frames = 0;
     } else if (writes != save_writes_flushed && ++save_quiet_frames >= 30) {
         save_flush("the game saved");
+        autosave_game_saved();
     }
+    autosave_frame_step(frame);
 
     /* quitting: after the game's writes to the chip have settled (at most 3 seconds more) */
     if (quit_asked || (opt.stop_frame && frame >= opt.stop_frame)) {
@@ -1177,10 +1295,12 @@ int main(int argc, char **argv)
     opt.scale = 2;
     opt.tall = 1;
     opt.sound = 1;
+    opt.autosave = 1;
     opt.resolution = 1;
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
     const char *audio_wav = NULL;
+    int autosave = -1, load_autosave = 0;
     int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0, resolution = 0; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -1199,6 +1319,12 @@ int main(int argc, char **argv)
             no_sound = 1;
         } else if (strcmp(a, "--audio-wav") == 0 && more) {
             audio_wav = argv[++i];
+        } else if (strcmp(a, "--autosave") == 0) {
+            autosave = 1;
+        } else if (strcmp(a, "--no-autosave") == 0) {
+            autosave = 0;
+        } else if (strcmp(a, "--load-autosave") == 0) {
+            load_autosave = 1;
         } else if (strcmp(a, "--resetti") == 0) {
             resetti = 1;
         } else if (strcmp(a, "--no-resetti") == 0) {
@@ -1252,6 +1378,9 @@ int main(int argc, char **argv)
     if (resetti >= 0) {
         opt.resetti = resetti;
     }
+    if (autosave >= 0) {
+        opt.autosave = autosave;
+    }
     if (!two_screens) {
         opt.tall = tall_setting;
     }
@@ -1273,6 +1402,7 @@ int main(int argc, char **argv)
         snprintf(opt.save, sizeof(opt.save), "%s/acww.sav", opt.data);
     }
     snprintf(opt.modules_dir, sizeof(opt.modules_dir), "%s/modules", opt.data);
+    autosave_at_start(load_autosave);
 
     char detail[512], rom_used[PATH_SIZE];
     RomStatus status = rom_prepare(opt.rom, opt.modules_dir, 0, rom_used, sizeof(rom_used), opt.manifest,

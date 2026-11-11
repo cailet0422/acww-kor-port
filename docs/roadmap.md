@@ -10,10 +10,10 @@ What the port does now and the order the rest goes in. The facts about the decom
 | | State |
 |---|---|
 | The game in the port | runs; the decomp's recordings give the decomp's frames, bit for bit, on x86 and ARM, 32- and 64-bit ([64bit.md](64bit.md)) |
-| Android APK | `armeabi-v7a` and `arm64-v8a`, built by CI; **not yet run on a real phone** |
+| Android APK | `armeabi-v7a` and `arm64-v8a`, built by CI; runs on a phone |
 | Linux | x86-64 and 32-bit x86, built by CI |
 | ROM check and split | the same modules as the decomp's `tools/extract.py`, byte for byte (`port/tests/test_rom_prep.py`) |
-| Speed | the interpreter alone ran 2 to 3 times the DS's speed on a server CPU; on phones, to be measured |
+| Speed | the title recording runs at 3 to 4 times the DS's speed on a server CPU, the drawing on a thread of its own; on phones, to be measured (the settings screen shows it) |
 | Sound | on: the runtime's mixer, with the DS's data fetching so that the game's surround is heard, through an SDL audio device ([sound.md](sound.md)) |
 
 ## What the decomp's runtime assumes
@@ -62,15 +62,12 @@ What the port does now and the order the rest goes in. The facts about the decom
    - cutouts and rounded corners on real phones: to be checked on devices;
    - Mr. Resetti on or off: done, off by default (`resetti=1` in the settings, or `--resetti`,
      brings him back). When a town is loaded the game asks whether the last play ended
-     without a save; with him off the answer is no (`port/src/game_hooks.c`). The place was
-     found in the decomp's readable sources and checked in the ROM's code; it has not been
-     played through yet, for want of a save of a played town to load;
-   - autosave. The save is the game's state block, 0x173fc bytes of memory, written to the
-     card twice with checksums (`decomp/clean/main/activity_card.c`, `card_save.c`). To do:
-     what the game puts in order before it writes (the pockets, the day stamp, the flags),
-     then the same write made without the game's dialog, at moments when the game could save
-     itself (outdoors, no talk, no menu), every minute or so and when the app goes to the
-     background. It needs a save of a played town to check that what is written loads.
+     without a save; with him off the answer is no (`port/src/game_hooks.c`). Played
+     through both ways ([autosave.md](autosave.md));
+   - autosave: done, on by default ([autosave.md](autosave.md)). The town's state block is
+     written as the game's save, with the game's sums, to a file beside the save, every
+     minute and when the app goes out of sight, at moments the game would let the player
+     save; the next start asks which to go on from. To check: a town played for days.
 3. **Sound** ([sound.md](sound.md)). Done: the decomp's sequencer and mixer, the mixer with
    the DS's fetching of data ahead (without it the game's surround is never heard) and the
    DS's output rate; converted to the device's rate and kept in step with its clock

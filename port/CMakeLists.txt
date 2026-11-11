@@ -186,7 +186,8 @@ endif()
 
 # run.c is built through run_port.c, which adds the port's hooks into the game's code behind
 # the run's own (src/game_hooks.h)
-set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/run_port.c src/sound_sdl.c src/ds_audio_port.c)
+set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/run_port.c src/sound_sdl.c
+    src/ds_audio_port.c)
 set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c PROPERTIES COMPILE_OPTIONS "${RUN_C_OPTIONS}")
 if(ANDROID)
     # SDLActivity loads libSDL2.so and libmain.so, and calls SDL_main
@@ -202,7 +203,7 @@ else()
 endif()
 set_source_files_properties(${FRONT_SOURCES} PROPERTIES COMPILE_DEFINITIONS RUN_FRONT_END)
 # (they reach the DS's memory through memory_host too: the same memory.h in front of them)
-set_source_files_properties(src/front_sdl.c src/touch.c src/game_hooks.c PROPERTIES COMPILE_OPTIONS
+set_source_files_properties(src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c PROPERTIES COMPILE_OPTIONS
     "-std=c11;-Wall;-Wextra;${RUNTIME_INCLUDES}")
 target_compile_definitions(${FRONT} PRIVATE _DEFAULT_SOURCE PORT_VERSION="${PORT_VERSION}")
 target_link_libraries(${FRONT} PRIVATE acww_rom acww_runtime ${SDL_TARGET} m)

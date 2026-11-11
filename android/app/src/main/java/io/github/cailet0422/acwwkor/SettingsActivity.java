@@ -63,6 +63,7 @@ public class SettingsActivity extends Activity {
 
         column.addView(button(R.string.settings_back, this::finish));
         column.addView(choice("sound", true, R.string.settings_sound));
+        column.addView(choice("autosave", true, R.string.settings_autosave));
         column.addView(choice("resetti", false, R.string.settings_resetti));
         column.addView(choice("full_touch", false, R.string.settings_full_touch));
         column.addView(choice("tall", true, R.string.settings_tall));
@@ -334,6 +335,8 @@ public class SettingsActivity extends Activity {
                 save.renameTo(new File(getFilesDir(), "acww.sav.before-import"));
             }
             if (part.renameTo(save)) {
+                /* the port's own save was of the town this one replaces */
+                new File(getFilesDir(), "acww.sav.auto").delete();
                 closeApp();
             } else {
                 toast(R.string.settings_failed);
