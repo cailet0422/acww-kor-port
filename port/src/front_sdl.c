@@ -662,7 +662,10 @@ static void on_frame(uint32_t frame)
         if (writes == save_writes_flushed || save_quiet_frames >= 30 || ++quit_wait > 180) {
             save_flush(quit_asked ? "quit" : "frame limit");
             SDL_Log("play: ended at frame %u", frame);
-            exit(0);
+            /* not exit(): the drawing thread is still running, and exit() takes apart what it
+               uses (Android's C library aborts on a mutex destroyed under a thread) */
+            fflush(NULL);
+            _exit(0);
         }
     }
     draw();

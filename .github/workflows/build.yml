@@ -20,7 +20,7 @@ jobs:
             cmake: ""
           - arch: i686
             packages: gcc-multilib g++-multilib libsdl2-dev:i386
-            cmake: -DCMAKE_TOOLCHAIN_FILE=port/cmake/linux-i686.cmake
+            cmake: -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/port/cmake/linux-i686.cmake
     steps:
       - uses: actions/checkout@v4
         with:
@@ -61,7 +61,7 @@ jobs:
         run: |
           for arch in aarch64 armhf; do
             cmake -S port -B build-$arch -G Ninja -DCMAKE_BUILD_TYPE=Release -DPORT_FRONT_END=OFF \
-              -DCMAKE_TOOLCHAIN_FILE=port/cmake/linux-$arch.cmake
+              -DCMAKE_TOOLCHAIN_FILE=$PWD/port/cmake/linux-$arch.cmake
             cmake --build build-$arch
           done
           printf '#!/bin/sh\nexec qemu-aarch64 -L /usr/aarch64-linux-gnu build-aarch64/acww-rom-prep "$@"\n' > rom-prep-aarch64
