@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.2.0).** The game runs in the port, and its frames are the decomp's own bit
+> **Early days (0.3.0).** The game runs in the port, and its frames are the decomp's own bit
 > for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)). It has **not yet
 > been run on a real phone**, and there is no sound yet. See the [roadmap](docs/roadmap.md).
 
@@ -35,6 +35,8 @@ This repository adds what the other platforms need, without changing the decomp 
 - an **SDL2 front end** (`port/src/front_sdl.c`) in place of the decomp's Win32 window: both
   screens, keyboard, mouse, game controllers, touch buttons drawn around the screens, frame
   pacing and the save file;
+- the **tall view**: the 3D scene continued onto the upper screen, so the two screens show one
+  picture ([docs/tall-view.md](docs/tall-view.md));
 - the **ROM check and split** done on the device (`port/src/rom_prep.c`, the same split as the
   decomp's `tools/extract.py`, tested against it);
 - small **stand-ins** for the decomp's x86-only host code, so its runtime builds for ARM and

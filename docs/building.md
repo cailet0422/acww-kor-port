@@ -81,6 +81,7 @@ how to run it for ARM under qemu-user.
 | `port/CMakeLists.txt` | the decomp's runtime (the Reference form) and the front end, for Linux and Android |
 | `port/src/front_sdl.c` | the SDL2 front end (the decomp's `runtime/play.c` on SDL2) |
 | `port/src/touch.c` | the touch buttons and the screens' layout |
+| `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_upper.c` | the tall view: the decomp's 3D engine twice (docs/tall-view.md) |
 | `port/src/rom_prep.c` | the ROM check and the split into modules |
 | `port/src/native_os_portable.c` | stand-ins for the decomp's x86-only host code |
 | `port/compat/` | headers force-included into the decomp's sources: Android's C library, 64-bit hosts |

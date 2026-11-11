@@ -5,7 +5,7 @@
 What the port does now and the order the rest goes in. The facts about the decomp are from
 `decomp/` at the pinned commit (`docs/runtime.md`, `docs/play.md` and the runtime's sources).
 
-## Where it stands (0.2.0)
+## Where it stands (0.3.0)
 
 | | State |
 |---|---|
@@ -43,7 +43,9 @@ What the port does now and the order the rest goes in. The facts about the decom
    on real phones, measure the speed, fix what breaks.
 2. **A phone's way of playing.**
    - portrait first, and a full-touch mode: the game played with the stylus alone, no buttons drawn;
-   - every screen shape (tall phones, tablets, foldables, cutouts) and no borders around the screens;
+   - the two screens as one picture: done for the 3D scene ([tall-view.md](tall-view.md)); what
+     the game leaves out above its own screen is still to be widened;
+   - every screen shape (tall phones, tablets, foldables, cutouts);
    - autosave, and Mr. Resetti on or off: both need the game's own code found in the decomp
      (the save routine, and the check that sends Resetti after a reset).
 3. **Sound.** An SDL audio device for the decomp's mixer (`runtime/sound.h`, `runtime/ds_audio.h`).

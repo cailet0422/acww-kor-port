@@ -78,6 +78,7 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/CMakeLists.txt` | 디컴프 런타임(Reference 형태)과 화면 코드를 Linux·Android용으로 빌드 |
 | `port/src/front_sdl.c` | SDL2 화면 코드(디컴프의 `runtime/play.c`를 SDL2로 옮김) |
 | `port/src/touch.c` | 터치 버튼과 화면 배치 |
+| `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_upper.c` | 이어진 화면: 디컴프의 3D 엔진을 두 벌로(docs/tall-view.ko.md) |
 | `port/src/rom_prep.c` | ROM 확인과 모듈 분리 |
 | `port/src/native_os_portable.c` | 디컴프의 x86 전용 호스트 코드를 대신하는 코드 |
 | `port/compat/` | 디컴프 소스에 강제로 포함하는 헤더. Android C 라이브러리, 64비트 환경 대응 |

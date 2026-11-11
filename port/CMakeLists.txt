@@ -34,14 +34,17 @@ endif()
 # decomp/tools/run.py's SOURCES, the Reference form (native_none.c: no Native functions);
 # run.c is built with each program, with or without its own main (RUN_FRONT_END)
 set(RUNTIME_SOURCES
-    arm.c memory.c io.c bios.c arm7.c boot.c gpu2d.c gpu3d.c frame.c input.c native_run.c
+    arm.c memory.c io.c bios.c arm7.c boot.c gpu2d.c frame.c input.c native_run.c
     native_aggregate.c render.c drive.c sequencer.c ds_audio.c sound.c wm.c wifi.c driven.c native_none.c)
 if(DECOMP_HOST)
     list(APPEND RUNTIME_SOURCES native_os.c host.c native_tramp.S)
 endif()
 list(TRANSFORM RUNTIME_SOURCES PREPEND "${RUNTIME}/")
 
-add_library(acww_runtime STATIC ${RUNTIME_SOURCES})
+# gpu3d.c is built twice, through two files that include it: the engine itself, and a second
+# copy for the tall view, with tall3d.c in front of both (port/src/tall3d.h)
+add_library(acww_runtime STATIC ${RUNTIME_SOURCES} src/gpu3d_main.c src/gpu3d_upper.c src/tall3d.c)
+target_include_directories(acww_runtime PUBLIC src)
 if(NOT DECOMP_HOST)
     target_sources(acww_runtime PRIVATE src/native_os_portable.c)
 endif()

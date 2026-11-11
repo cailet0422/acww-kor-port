@@ -38,6 +38,7 @@
 
 #include "front.h"
 #include "rom_prep.h"
+#include "tall3d.h"
 #include "touch.h"
 
 /* The DS's frame: 263 lines of 2130 bus cycles at 33,513,982 Hz, about 59.8261 a second. */
@@ -51,8 +52,10 @@
 static struct {
     char data[PATH_SIZE], rom[PATH_SIZE], save[PATH_SIZE], modules_dir[PATH_SIZE], manifest[PATH_SIZE];
     const char *rtc, *input;
-    int read_only, scale, unpaced, linear, overlay;
+    int read_only, scale, unpaced, linear, overlay, tall;
     uint32_t stop_frame; /* 0: none */
+    uint32_t shots[8];   /* frames to save as PNGs (--shot) */
+    int shot_count;
 } opt;
 
 static void usage(void)
@@ -70,7 +73,10 @@ static void usage(void)
             "  --frames N      save and quit after N frames (for scripted checks)\n"
             "  --fast          no pacing: as fast as this machine runs it (as with Tab held)\n"
             "  --smooth        scale the screens with linear filtering instead of whole pixels\n"
-            "  --touch         draw the touch buttons even without a touch screen\n",
+            "  --touch         draw the touch buttons even without a touch screen\n"
+            "  --two-screens   the DS's two pictures as they are, without the 3D scene continued\n"
+            "                  onto the upper screen\n"
+            "  --shot N        save the screens of frame N as a PNG in DATA (may be given 8 times)\n",
             opt.data);
     exit(2);
 }
@@ -546,12 +552,47 @@ static void handle(const SDL_Event *e)
 
 /* The drawing thread's frames ---------------------------------------------------------------- */
 
+/* The 3D scene's upper part (tall3d.h) over the upper screen: opaque where the scene is,
+ * blended at its translucent pixels and antialiased edges, nothing where it drew nothing. */
+static void lay_tall(uint32_t *upper)
+{
+    static uint32_t tall[TALL3D_H][TALL3D_W];
+    if (!tall3d_frame(tall)) {
+        return;
+    }
+    for (int y = 0; y < TALL3D_H; y++) {
+        for (int x = 0; x < TALL3D_W; x++) {
+            uint32_t p = tall[y][x], a = p >> 24;
+            if (a == 0) {
+                continue;
+            }
+            uint32_t *to = &upper[y * FRONT_SCREEN_W + x], out = 0;
+            for (int k = 0; k < 3; k++) { /* red, green, blue: 6 bits here, 8 on the screen */
+                uint32_t c = (p >> (8 * k)) & 63, old = (*to >> (16 - 8 * k)) & 255;
+                c = c << 2 | c >> 4;
+                out |= (a >= 31 ? c : (c * a + old * (31 - a)) / 31) << (16 - 8 * k);
+            }
+            *to = out;
+        }
+    }
+}
+
 static void on_frame_output(uint32_t frame, const uint32_t *upper, const uint32_t *lower)
 {
     SDL_LockMutex(shown_lock);
     memcpy(shown, upper, sizeof(uint32_t) * FRONT_SCREEN_W * FRONT_SCREEN_H);
     memcpy(shown + FRONT_SCREEN_W * FRONT_SCREEN_H, lower, sizeof(uint32_t) * FRONT_SCREEN_W * FRONT_SCREEN_H);
+    if (opt.tall) {
+        lay_tall(shown);
+    }
     shown_frame = frame + 1;
+    for (int i = 0; i < opt.shot_count; i++) {
+        if (opt.shots[i] == frame) {
+            char path[PATH_SIZE + 64];
+            snprintf(path, sizeof(path), "%s/frame-%05u.png", opt.data, frame);
+            png_write(path, shown, FRONT_SCREEN_W, 2 * FRONT_SCREEN_H);
+        }
+    }
     SDL_UnlockMutex(shown_lock);
 }
 
@@ -704,6 +745,7 @@ static const char *rom_problem(RomStatus status)
 int main(int argc, char **argv)
 {
     opt.scale = 2;
+    opt.tall = 1;
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
     for (int i = 1; i < argc; i++) {
@@ -717,6 +759,10 @@ int main(int argc, char **argv)
             opt.linear = 1;
         } else if (strcmp(a, "--touch") == 0) {
             opt.overlay = 1;
+        } else if (strcmp(a, "--two-screens") == 0) {
+            opt.tall = 0;
+        } else if (strcmp(a, "--shot") == 0 && more && opt.shot_count < 8) {
+            opt.shots[opt.shot_count++] = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--rtc") == 0 && more) {
             opt.rtc = argv[++i];
         } else if (strcmp(a, "--input") == 0 && more) {
@@ -796,6 +842,7 @@ int main(int argc, char **argv)
     SDL_Log("play: keys: arrows = +Control Pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = START,");
     SDL_Log("      Shift or Backspace = SELECT, mouse on the lower screen = touch, Tab = fast forward, F12 = screenshot");
 
+    tall3d_enable(opt.tall);
     shown_lock = SDL_CreateMutex();
     counter_hz = (double) SDL_GetPerformanceFrequency();
     ticks_per_frame = counter_hz * DS_CYCLES_PER_FRAME / DS_BUS_HZ;
