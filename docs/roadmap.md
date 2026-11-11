@@ -58,8 +58,17 @@ What the port does now and the order the rest goes in. The facts about the decom
      other code draws; find it in the decomp, see whether it leaves anything out above the
      screen, and widen it the same way, checked against the recordings;
    - cutouts and rounded corners on real phones: to be checked on devices;
-   - autosave, and Mr. Resetti on or off: both need the game's own code found in the decomp
-     (the save routine, and the check that sends Resetti after a reset).
+   - Mr. Resetti on or off: done, off by default (`resetti=1` in the settings, or `--resetti`,
+     brings him back). When a town is loaded the game asks whether the last play ended
+     without a save; with him off the answer is no (`port/src/game_hooks.c`). The place was
+     found in the decomp's readable sources and checked in the ROM's code; it has not been
+     played through yet, for want of a save of a played town to load;
+   - autosave. The save is the game's state block, 0x173fc bytes of memory, written to the
+     card twice with checksums (`decomp/clean/main/activity_card.c`, `card_save.c`). To do:
+     what the game puts in order before it writes (the pockets, the day stamp, the flags),
+     then the same write made without the game's dialog, at moments when the game could save
+     itself (outdoors, no talk, no menu), every minute or so and when the app goes to the
+     background. It needs a save of a played town to check that what is written loads.
 3. **Sound.** An SDL audio device for the decomp's mixer (`runtime/sound.h`, `runtime/ds_audio.h`).
 4. **A Vulkan renderer.** The DS's 3D engine drawn by the GPU, so the 3D scene comes out at the
    phone's own resolution, with antialiasing; the 2D layers scaled over it. OpenGL ES stays as

@@ -54,6 +54,7 @@ static struct {
     char data[PATH_SIZE], rom[PATH_SIZE], save[PATH_SIZE], modules_dir[PATH_SIZE], manifest[PATH_SIZE];
     const char *rtc, *input;
     int read_only, scale, unpaced, linear, overlay, tall, full_touch;
+    int resetti;         /* Mr. Resetti comes after a play without a save, as on a DS */
     int no_above;        /* the game's own choice of what to draw above its screen (--no-above) */
     const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
     int width, height;   /* the window's starting size (--size), else by --scale */
@@ -79,6 +80,8 @@ static void usage(void)
             "  --fast          no pacing: as fast as this machine runs it (as with Tab held)\n"
             "  --smooth        scale the screens with linear filtering instead of whole pixels\n"
             "  --touch         draw the touch buttons even without a touch screen\n"
+            "  --resetti, --no-resetti  whether Mr. Resetti comes after a play that ended without a\n"
+            "                  save (default: he does not; \"resetti=1\" in DATA/settings.txt keeps it)\n"
             "  --full-touch    start without the touch buttons (the stylus alone); the mark at the\n"
             "                  corner, or Back on Android, turns them on and off, and it is remembered\n"
             "  --size WxH      the window's starting size in pixels\n"
@@ -282,6 +285,8 @@ static void settings_load(void)
         int v;
         if (sscanf(line, "full_touch=%d", &v) == 1) {
             opt.full_touch = v != 0;
+        } else if (sscanf(line, "resetti=%d", &v) == 1) {
+            opt.resetti = v != 0;
         } else {
             touch_settings_line(line);
         }
@@ -296,6 +301,7 @@ static void settings_save(void)
     FILE *f = fopen(path, "w");
     if (f != NULL) {
         fprintf(f, "full_touch=%d\n", opt.full_touch);
+        fprintf(f, "resetti=%d\n", opt.resetti);
         touch_settings_write(f);
         fclose(f);
     }
@@ -815,6 +821,7 @@ static void on_frame(uint32_t frame)
         /* the port's hooks into the game's code, behind the run's own, which exist by now */
         port_hooks_install();
         game_hooks_draw_above(opt.tall && !opt.no_above);
+        game_hooks_resetti(opt.resetti);
         frame_first = 0;
     }
     if (window == NULL) {
@@ -867,6 +874,7 @@ static void on_frame(uint32_t frame)
         if (writes == save_writes_flushed || save_quiet_frames >= 30 || ++quit_wait > 180) {
             save_flush(quit_asked ? "quit" : "frame limit");
             SDL_Log("play: %lu drawings of objects above the game's screen", game_hooks_drawn_above());
+            SDL_Log("play: Mr. Resetti kept away %lu times", game_hooks_resetti_kept_away());
             SDL_Log("play: ended at frame %u", frame);
             /* not exit(): the drawing thread is still running, and exit() takes apart what it
                uses (Android's C library aborts on a mutex destroyed under a thread) */
@@ -917,7 +925,7 @@ int main(int argc, char **argv)
     opt.tall = 1;
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
-    int full_touch = -1; /* as the settings say, unless the command line does */
+    int full_touch = -1, resetti = -1; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         int more = i + 1 < argc;
@@ -929,6 +937,10 @@ int main(int argc, char **argv)
             opt.linear = 1;
         } else if (strcmp(a, "--touch") == 0) {
             opt.overlay = 1;
+        } else if (strcmp(a, "--resetti") == 0) {
+            resetti = 1;
+        } else if (strcmp(a, "--no-resetti") == 0) {
+            resetti = 0;
         } else if (strcmp(a, "--touch-script") == 0 && more) {
             touch_script = fopen(argv[++i], "r");
         } else if (strcmp(a, "--no-above") == 0) {
@@ -971,6 +983,9 @@ int main(int argc, char **argv)
     settings_load();
     if (full_touch >= 0) {
         opt.full_touch = full_touch;
+    }
+    if (resetti >= 0) {
+        opt.resetti = resetti;
     }
     SDL_Log("acww-kor-port %s, %d-bit", PORT_VERSION, (int) (8 * sizeof(void *)));
     snprintf(opt.rom, sizeof(opt.rom), "%s", rom != NULL ? rom : "");

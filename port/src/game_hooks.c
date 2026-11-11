@@ -150,9 +150,49 @@ static int can_draw_entered(ArmCpu *cpu, void *user)
     return ARM_HOOK_QUIET;
 }
 
+/* Mr. Resetti ---------------------------------------------------------------------------------
+ *
+ * Each player's record has a flag that is set while the game is played and cleared when it
+ * is saved (PLAYER_FLAG_UNSAVED, decomp/clean/main/player_record.h). When a town is loaded
+ * to be played (StateBlock_StartMode2, decomp/clean/main/state_block.c), the game asks for
+ * that flag: still set, the last play ended without a save, so the count of resets is raised
+ * and the mole is sent for. Then it sets the flag for this play.
+ *
+ * With the mole off, the answer to that one question is "no": the hook is at the address the
+ * question's call returns to (0x0209ed3e, after `bl PlayerRecord_TestFlag` with flag 2 at
+ * 0x0209ed3a in the Korean release), and clears r0. Nothing else reads differently, and the
+ * flag itself goes on being set and cleared as the game does it. */
+#define LOAD_UNSAVED_ANSWER 0x0209ed3eu
+
+static int resetti;
+static unsigned long resetti_kept_away;
+
+void game_hooks_resetti(int on)
+{
+    resetti = on;
+}
+
+unsigned long game_hooks_resetti_kept_away(void)
+{
+    return resetti_kept_away;
+}
+
+static int unsaved_answered(ArmCpu *cpu, void *user)
+{
+    (void) user;
+    if (cpu->r[0] != 0) {
+        cpu->r[0] = 0;
+        resetti_kept_away++;
+    }
+    return ARM_HOOK_QUIET;
+}
+
 ArmHook game_hook_at(uint32_t address, void **user)
 {
     (void) user;
+    if (address == LOAD_UNSAVED_ANSWER && !resetti) {
+        return unsaved_answered;
+    }
     if (!draw_above) {
         return NULL;
     }

@@ -2,7 +2,8 @@
  * what the game does, by the decomp's addresses (the Korean release) and its readable
  * sources (decomp/clean/), which say what the code at each address is.
  *
- * So far one: what the game draws above its own screen, for the tall view (docs/tall-view.md).
+ * What the game draws above its own screen, for the tall view (docs/tall-view.md), and whether
+ * Mr. Resetti comes.
  */
 #ifndef ACWW_PORT_GAME_HOOKS_H
 #define ACWW_PORT_GAME_HOOKS_H
@@ -23,5 +24,10 @@ void game_hooks_draw_above(int on);
 
 /* For the log: how many times an object was drawn that the game would have left out. */
 unsigned long game_hooks_drawn_above(void);
+
+/* Whether Mr. Resetti comes after a play that ended without a save (as on a DS), and how many
+ * times he was kept away. */
+void game_hooks_resetti(int on);
+unsigned long game_hooks_resetti_kept_away(void);
 
 #endif

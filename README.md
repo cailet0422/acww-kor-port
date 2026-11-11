@@ -77,6 +77,9 @@ make the one you touched last smaller or larger with − and +, put all back wit
 close with the tick. Tall and wide screens keep their own arrangements. Tab held
 runs as fast as the machine can; F12 saves the screens as a PNG next to the save.
 
+Mr. Resetti does not come after a play that ended without a save (`resetti=1` in
+`settings.txt`, or `--resetti`, brings him back as on a DS).
+
 The save is a 256 KB flash image (the `.sav` format emulators use): `acww.sav` in the app's
 files on Android, in `~/.local/share/acww-kor-port/acww-kor/` on Linux (`--data` and a save path
 change both). It is written once the game stops writing to the chip, through a temporary file,
