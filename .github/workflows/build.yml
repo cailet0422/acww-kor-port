@@ -17,10 +17,10 @@ jobs:
         include:
           - arch: x86_64
             packages: libsdl2-dev
-            cmake: ""
+            toolchain: ""
           - arch: i686
             packages: gcc-multilib g++-multilib libsdl2-dev:i386
-            cmake: -DCMAKE_TOOLCHAIN_FILE=${{ github.workspace }}/port/cmake/linux-i686.cmake
+            toolchain: linux-i686
     steps:
       - uses: actions/checkout@v4
         with:
@@ -32,7 +32,9 @@ jobs:
           sudo apt-get install -y ninja-build ${{ matrix.packages }}
       - name: Build
         run: |
-          cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake }}
+          TOOLCHAIN="${{ matrix.toolchain }}"
+          cmake -S port -B build -G Ninja -DCMAKE_BUILD_TYPE=Release \
+            ${TOOLCHAIN:+-DCMAKE_TOOLCHAIN_FILE=$PWD/port/cmake/$TOOLCHAIN.cmake}
           cmake --build build
       - name: ROM split against the decomp's extract.py
         run: python3 port/tests/test_rom_prep.py build/acww-rom-prep
