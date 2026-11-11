@@ -42,6 +42,7 @@
 #include "front.h"
 #include "game_hooks.h"
 #include "mix2d.h"
+#include "render.h"
 #include "rom_prep.h"
 #include "tall3d.h"
 #include "tall3d_engine.h"
@@ -105,6 +106,8 @@ static void usage(void)
             "                  onto the upper screen\n"
             "  --no-above      with the tall view, draw only the objects the game itself would\n"
             "  --hash FILE     write each frame's hashes there (the decomp's RUN_HASH), to compare runs\n"
+            "  --picture-hash FILE  write a hash of each picture as the port shows it (the tall\n"
+            "                  view and the larger scene included)\n"
             "  --shot N        save the screens of frame N as a PNG in DATA (may be given 8 times)\n",
             opt.data);
     exit(2);
@@ -962,11 +965,22 @@ static void put_together(const uint32_t *upper, const uint32_t *lower)
     }
 }
 
+/* --picture-hash FILE: a line for each frame's picture as the port shows it (the tall view
+ * and the larger scene included, which the decomp's own hashes, --hash, do not cover) */
+static FILE *picture_hashes;
+
 static void on_frame_output(uint32_t frame, const uint32_t *upper, const uint32_t *lower)
 {
     SDL_LockMutex(shown_lock);
     put_together(upper, lower);
     shown_frame = frame + 1;
+    if (picture_hashes != NULL) {
+        uint64_t h = 1469598103934665603ull; /* FNV-1a over the pixels */
+        for (int i = 0; i < PICTURE_W * PICTURE_H; i++) {
+            h = (h ^ shown[i]) * 1099511628211ull;
+        }
+        fprintf(picture_hashes, "%u %016llx\n", frame, (unsigned long long) h);
+    }
     for (int i = 0; i < opt.shot_count; i++) {
         if (opt.shots[i] == frame) {
             char path[PATH_SIZE + 64];
@@ -1105,6 +1119,10 @@ static void on_frame(uint32_t frame)
             SDL_Log("play: %lu drawings of objects above the game's screen", game_hooks_drawn_above());
             SDL_Log("play: Mr. Resetti kept away %lu times", game_hooks_resetti_kept_away());
             SDL_Log("play: ended at frame %u", frame);
+            /* the drawing thread's last frames, for those who asked for a record of them */
+            if (picture_hashes != NULL || (opt.hash != NULL && *opt.hash)) {
+                render_finish();
+            }
             /* not exit(): the drawing thread is still running, and exit() takes apart what it
                uses (Android's C library aborts on a mutex destroyed under a thread) */
             fflush(NULL);
@@ -1123,7 +1141,13 @@ static void on_frame(uint32_t frame)
 
 static void set_env(const char *name, const char *value)
 {
-    SDL_setenv(name, value != NULL ? value : "", 1);
+    /* nothing to say: the variable is taken away, not left empty. The runtime asks of some
+       only whether they exist (RUN_DUMP3D, which turns its drawing thread off) */
+    if (value == NULL || *value == 0) {
+        unsetenv(name);
+        return;
+    }
+    SDL_setenv(name, value, 1);
 }
 
 static const char *rom_problem(RomStatus status)
@@ -1185,6 +1209,8 @@ int main(int argc, char **argv)
             opt.no_above = 1;
         } else if (strcmp(a, "--hash") == 0 && more) {
             opt.hash = argv[++i];
+        } else if (strcmp(a, "--picture-hash") == 0 && more) {
+            picture_hashes = fopen(argv[++i], "w");
         } else if (strcmp(a, "--full-touch") == 0) {
             full_touch = 1;
         } else if (strcmp(a, "--size") == 0 && more) {
