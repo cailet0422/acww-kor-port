@@ -27,9 +27,17 @@ jobs:
           submodules: true
       - name: Toolchain and SDL2
         run: |
+          # (the runners' package mirror does not always answer: tried again before giving up)
           sudo dpkg --add-architecture i386
-          sudo apt-get update
-          sudo apt-get install -y ninja-build ${{ matrix.packages }}
+          ok=0
+          for try in 1 2 3 4; do
+            if sudo apt-get update && sudo apt-get install -y -o Acquire::Retries=3 ninja-build ${{ matrix.packages }}; then
+              ok=1
+              break
+            fi
+            sleep 30
+          done
+          test $ok = 1
       - name: Build
         run: |
           TOOLCHAIN="${{ matrix.toolchain }}"
@@ -63,8 +71,16 @@ jobs:
           submodules: true
       - name: Cross compilers and qemu
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build gcc-aarch64-linux-gnu gcc-arm-linux-gnueabihf qemu-user
+          ok=0
+          for try in 1 2 3 4; do
+            if sudo apt-get update && sudo apt-get install -y -o Acquire::Retries=3 ninja-build gcc-aarch64-linux-gnu \
+                gcc-arm-linux-gnueabihf qemu-user; then
+              ok=1
+              break
+            fi
+            sleep 30
+          done
+          test $ok = 1
       - name: Build and test the ROM split
         run: |
           for arch in aarch64 armhf; do
