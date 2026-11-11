@@ -650,7 +650,8 @@ static int vulkan_failures;     /* new surfaces that did not work, in a row */
 static Uint32 vulkan_retry_tick;
 static unsigned vulkan_frames;  /* shown through Vulkan in this run */
 static char vulkan_note[200];   /* why the window is not drawn through Vulkan, for the status */
-static uint32_t vulkan_lose_frame; /* --vulkan-lose N: the surface is let go of at frame N (a check) */
+static uint32_t vulkan_lose_frame; /* --vulkan-lose N: the app "leaves the screen" at frame N and returns (a check) */
+static int app_away;               /* the app is leaving, or has left, the screen */
 static unsigned vulkan_renewals, vulkan_renew_failures; /* new surfaces made, and not made, in this run */
 static char vulkan_last_error[96];
 
@@ -1379,12 +1380,19 @@ static void vulkan_renew(void)
 static void draw(void)
 {
     /* (the presenter is made and unmade on this thread only: it can be asked for here) */
-    if (presenter != NULL && vulkan_lose_frame != 0 && frame_now == vulkan_lose_frame) {
-        SDL_LockMutex(vk_lock);
-        vulkan_release("--vulkan-lose");
-        SDL_UnlockMutex(vk_lock);
+    if (vulkan_lose_frame != 0 && (frame_now == vulkan_lose_frame || frame_now == vulkan_lose_frame + 30)) {
+        /* --vulkan-lose: the events of an Android app's leaving the screen, and half a second
+           later those of its return, as SDL sends them (a "device reset" among them) */
+        SDL_Event leave = {.type = frame_now == vulkan_lose_frame ? SDL_APP_WILLENTERBACKGROUND : SDL_APP_DIDENTERFOREGROUND};
+        SDL_PushEvent(&leave);
+        if (frame_now != vulkan_lose_frame) {
+            SDL_Event reset = {.type = SDL_RENDER_DEVICE_RESET};
+            SDL_PushEvent(&reset);
+        }
     }
-    if (presenter != NULL && vulkan_lost) {
+    /* a new surface once the app is on the screen again: while it is leaving, the window is
+       still there for a moment, and a surface made on it then would go with it */
+    if (presenter != NULL && vulkan_lost && !app_away) {
         SDL_LockMutex(vk_lock);
         vulkan_renew();
         SDL_UnlockMutex(vk_lock);
@@ -1622,9 +1630,18 @@ static void handle(const SDL_Event *e)
             quit_asked = 1;
             break;
         case SDL_APP_DIDENTERFOREGROUND:
+            app_away = 0;
             settings_apply(); /* the settings screen may have changed them */
             break;
         case SDL_RENDER_DEVICE_RESET:
+            /* SDL's renderer lost its device. Not with the window drawn through Vulkan: there
+               is no renderer then, yet SDL on Android sends this at every return to the
+               screen (it finds no OpenGL context to restore), and a renderer made here would
+               turn the Vulkan window into an OpenGL one, on which no surface can be made
+               again: the black screen, and Vulkan given up, after the settings. */
+            if (presenter != NULL || renderer == NULL) {
+                break;
+            }
             SDL_Log("play: the graphics device was lost; a new renderer");
             if (open_renderer() != 0) {
                 SDL_Log("play: no renderer (%s)", SDL_GetError());
@@ -1643,6 +1660,7 @@ static void handle(const SDL_Event *e)
             autosave_leaving();
             wifi_keep();
             vulkan_marker_set(0);
+            app_away = e->type == SDL_APP_WILLENTERBACKGROUND;
             if (e->type == SDL_APP_WILLENTERBACKGROUND && presenter != NULL) {
                 /* Android takes the window from under the surface: let go of first (after
                    the frame being drawn, if one is) */

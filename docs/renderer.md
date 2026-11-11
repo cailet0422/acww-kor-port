@@ -78,8 +78,13 @@ setting is turned off, and the settings screen says why. Nothing else turns it o
 5. **The surface's coming and going.** Android takes the window from under the surface
    whenever another screen comes to the front (the settings, another app). The surface and
    its swapchain are let go of before that happens, and a new surface is made when the app
-   is back; the same is done after any frame that fails, since the system does not always
-   say what was lost. If new surfaces keep failing, everything of Vulkan's is made anew
+   is back (not before: the old window is still there for a moment while the app leaves);
+   the same is done after any frame that fails, since the system does not always say what
+   was lost. SDL on Android also sends "the renderer's device was reset" at every return,
+   having found no OpenGL context to restore on a Vulkan window. That event is for SDL's
+   renderer, which a Vulkan window has none of, and is left alone: answering it with a new
+   renderer turned the window into an OpenGL one, on which no Vulkan surface can be made
+   (what a player's log showed behind the black screen after the settings). If new surfaces keep failing, everything of Vulkan's is made anew
    once, and after that the window goes on without Vulkan for the rest of the run, with the
    software picture (the tall view included); the next start tries Vulkan again. What failed,
    with Vulkan's number for it, is in the log and on the settings screen's last page.
@@ -117,12 +122,14 @@ everything, and the frame checks pass with Vulkan on.
   (`VK_EXT_headless_surface`): the whole path, swapchain included, runs in the checks, and
   `--window-shot` reads the picture back. The new-game recording was run through it with
   the validation layers on, without a complaint.
-- `--vulkan-lose N` lets go of the surface at frame N as an app's leaving the screen does:
+- `--vulkan-lose N` sends the events of an Android app's leaving the screen at frame N and
+  of its return half a second later, the device reset among them:
   the new surface, everything made anew (`PORT_VULKAN_BREAK=1`: no new surface at first)
   and the going on without Vulkan (`PORT_VULKAN_BREAK=2`) were each run, the first under
   the validation layers and the address sanitizer.
-- On a phone: the renderer has been run on one by a player; what is described here was
-  made after their report and has not been on a device yet.
+- On a phone: the renderer runs on a player's (an Adreno 750: full speed, the emulation
+  busy half the time). The return from the settings was fixed from that phone's log and has
+  not been tried on it since.
 
 ## Not done
 
