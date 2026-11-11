@@ -12,6 +12,7 @@
     <string name="settings_arrange">버튼 배치 편집…</string>
     <string name="settings_back">게임으로 돌아가기</string>
     <string name="settings_tall">이어진 화면: 3D 장면을 위 화면까지 이어 그리기 (다음 실행부터 적용)</string>
+    <string name="settings_resolution">3D 해상도 (실험적, 다음 실행부터 적용. 높일수록 훨씬 무거워집니다)</string>
     <string name="settings_save_title">세이브 데이터</string>
     <string name="settings_save_export">세이브 내보내기…</string>
     <string name="settings_save_import">세이브 가져오기…</string>

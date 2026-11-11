@@ -81,7 +81,8 @@ how to run it for ARM under qemu-user.
 | `port/CMakeLists.txt` | the decomp's runtime (the Reference form) and the front end, for Linux and Android |
 | `port/src/front_sdl.c` | the SDL2 front end (the decomp's `runtime/play.c` on SDL2) |
 | `port/src/touch.c` | the touch buttons and the screens' layout |
-| `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_upper.c` | the tall view: the decomp's 3D engine twice (docs/tall-view.md) |
+| `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_tile.c` | the tall view and the larger picture: copies of the decomp's 3D engine (docs/tall-view.md, docs/renderer.md) |
+| `port/src/mix2d.c`, `gpu2d_main.c`, `gpu2d_probe.c` | a larger 3D picture mixed with the 2D layers: copies of the decomp's 2D engine |
 | `port/src/sound_sdl.c` | sound: the decomp's `sound.c` with an SDL audio device |
 | `port/src/game_hooks.c`, `run_port.c` | hooks into the game's code: drawing above the screen, Mr. Resetti |
 | `port/src/rom_prep.c` | the ROM check and the split into modules |

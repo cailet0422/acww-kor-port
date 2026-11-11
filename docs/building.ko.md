@@ -78,7 +78,8 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/CMakeLists.txt` | 디컴프 런타임(Reference 형태)과 화면 코드를 Linux·Android용으로 빌드 |
 | `port/src/front_sdl.c` | SDL2 화면 코드(디컴프의 `runtime/play.c`를 SDL2로 옮김) |
 | `port/src/touch.c` | 터치 버튼과 화면 배치 |
-| `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_upper.c` | 이어진 화면: 디컴프의 3D 엔진을 두 벌로(docs/tall-view.ko.md) |
+| `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_tile.c` | 이어진 화면과 더 큰 그림: 디컴프 3D 엔진의 복제본(docs/tall-view.ko.md, docs/renderer.ko.md) |
+| `port/src/mix2d.c`, `gpu2d_main.c`, `gpu2d_probe.c` | 큰 3D 그림을 2D 레이어와 섞기: 디컴프 2D 엔진의 복제본 |
 | `port/src/sound_sdl.c` | 소리: 디컴프의 `sound.c`에 SDL 오디오 장치를 붙임 |
 | `port/src/game_hooks.c`, `run_port.c` | 게임 코드에 거는 훅: 화면 위쪽 그리기, 도루묵씨 |
 | `port/src/rom_prep.c` | ROM 확인과 모듈 분리 |

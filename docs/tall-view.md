@@ -10,15 +10,17 @@ It is on by default; `--two-screens` gives the DS's two pictures as they are.
 ## How
 
 Nothing in the game or in the decomp's 3D engine is changed. The engine
-(`decomp/runtime/gpu3d.c`) is built a second time under other names (`port/src/gpu3d_upper.c`),
-and `port/src/tall3d.c` stands in front of both:
+(`decomp/runtime/gpu3d.c`) is built again under other names (`port/src/gpu3d_tile.c`), and
+`port/src/tall3d.c` stands in front of both (the same copies, more of them, draw the scene at
+a larger size: [renderer.md](renderer.md)):
 
 - every 3D command the game writes goes to the main engine as it is, and to the second engine
   too, except that a projection matrix the game loads is first moved up by one screen
   (`y' = y - 2w` in clip coordinates). What was just above the lower screen's top edge is
   inside the second engine's picture;
-- the second engine swaps and is drawn together with the main one, on the drawing thread, from
-  the same textures and registers, with a transparent rear plane;
+- the second engine has a thread of its own: it plays a frame's commands back when the frame
+  is complete, and draws when the drawing thread comes to that frame, from the same textures
+  and registers, with a transparent rear plane;
 - the front end lays its picture over the upper screen (`lay_tall` in `port/src/front_sdl.c`):
   opaque where the scene is, blended at translucent pixels and antialiased edges, with the
   main screen's brightness, so fades go together.

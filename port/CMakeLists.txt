@@ -36,17 +36,38 @@ endif()
 # sound.c: as it is for the headless program, with an SDL device for the front end
 # (src/sound_sdl.c)
 set(RUNTIME_SOURCES
-    arm.c memory.c io.c bios.c arm7.c boot.c gpu2d.c frame.c input.c native_run.c
+    arm.c memory.c io.c bios.c arm7.c boot.c frame.c input.c native_run.c
     native_aggregate.c render.c drive.c sequencer.c ds_audio.c wm.c wifi.c driven.c native_none.c)
 if(DECOMP_HOST)
     list(APPEND RUNTIME_SOURCES native_os.c host.c native_tramp.S)
 endif()
 list(TRANSFORM RUNTIME_SOURCES PREPEND "${RUNTIME}/")
 
-# gpu3d.c is built twice, through two files that include it: the engine itself, and a second
-# copy for the tall view, with tall3d.c in front of both (port/src/tall3d.h)
-add_library(acww_runtime STATIC ${RUNTIME_SOURCES} src/gpu3d_main.c src/gpu3d_upper.c src/tall3d.c)
+# gpu3d.c and gpu2d.c are built several times, through files of the port that include them:
+# the engines themselves, copies of the 3D engine for the parts of the picture beyond the
+# game's own (the tall view, a larger size: src/tall3d.h), and copies of the 2D engines for
+# mixing that picture with the game's 2D layers (src/mix2d.h)
+add_library(acww_runtime STATIC ${RUNTIME_SOURCES} src/gpu3d_main.c src/tall3d_engines.c src/tall3d.c
+    src/gpu2d_main.c src/mix2d.c)
 target_include_directories(acww_runtime PUBLIC src)
+set(ENGINE_COPIES)
+foreach(n RANGE 0 17)
+    add_library(gpu3d_tile${n} OBJECT src/gpu3d_tile.c)
+    target_compile_definitions(gpu3d_tile${n} PRIVATE TILE=${n})
+    list(APPEND ENGINE_COPIES gpu3d_tile${n})
+endforeach()
+foreach(n RANGE 0 2)
+    add_library(gpu2d_probe${n} OBJECT src/gpu2d_probe.c)
+    target_compile_definitions(gpu2d_probe${n} PRIVATE PROBE=${n})
+    list(APPEND ENGINE_COPIES gpu2d_probe${n})
+endforeach()
+foreach(copy ${ENGINE_COPIES})
+    target_include_directories(${copy} PRIVATE "${RUNTIME}" src)
+    target_compile_options(${copy} PRIVATE -std=c11 -O2 -fwrapv -fno-strict-aliasing -w
+        "-include${CMAKE_CURRENT_SOURCE_DIR}/compat/port_compat.h")
+    target_compile_definitions(${copy} PRIVATE _DEFAULT_SOURCE)
+    target_sources(acww_runtime PRIVATE $<TARGET_OBJECTS:${copy}>)
+endforeach()
 if(NOT DECOMP_HOST)
     target_sources(acww_runtime PRIVATE src/native_os_portable.c)
 endif()

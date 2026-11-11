@@ -41,8 +41,10 @@
 
 #include "front.h"
 #include "game_hooks.h"
+#include "mix2d.h"
 #include "rom_prep.h"
 #include "tall3d.h"
+#include "tall3d_engine.h"
 #include "touch.h"
 
 /* The DS's frame: 263 lines of 2130 bus cycles at 33,513,982 Hz, about 59.8261 a second. */
@@ -58,6 +60,7 @@ static struct {
     const char *rtc, *input;
     int read_only, scale, unpaced, linear, overlay, tall, full_touch;
     int sound;           /* the game's sound through the audio device */
+    int resolution;      /* the 3D scene at this many times the DS's size (1 to 3) */
     int resetti;         /* Mr. Resetti comes after a play without a save, as on a DS */
     int no_above;        /* the game's own choice of what to draw above its screen (--no-above) */
     const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
@@ -83,6 +86,8 @@ static void usage(void)
             "  --frames N      save and quit after N frames (for scripted checks)\n"
             "  --fast          no pacing: as fast as this machine runs it (as with Tab held)\n"
             "  --smooth        scale the screens with linear filtering instead of whole pixels\n"
+            "  --resolution N  the 3D scene drawn at N times the DS's size, 1 to 3 (\"resolution=N\" in\n"
+            "                  DATA/settings.txt keeps it); each step up costs several times the drawing\n"
             "  --no-sound      without sound (\"sound=0\" in DATA/settings.txt keeps it)\n"
             "  --touch         draw the touch buttons even without a touch screen\n"
             "  --resetti, --no-resetti  whether Mr. Resetti comes after a play that ended without a\n"
@@ -191,7 +196,12 @@ static void log_tail(char *out, size_t size)
 /* Shared state ------------------------------------------------------------------------------ */
 
 /* The last frame drawn, upper screen above the lower one, as the drawing thread left it. */
-static uint32_t shown[FRONT_SCREEN_W * FRONT_SCREEN_H * 2];
+/* The picture is PICTURE_W x PICTURE_H pixels: the DS's two screens at `picture_scale` times
+ * their size (the 3D scene drawn that large, tall3d.h; 1 is the DS's own size). */
+static int picture_scale = 1;
+#define PICTURE_W (FRONT_SCREEN_W * picture_scale)
+#define PICTURE_H (2 * FRONT_SCREEN_H * picture_scale)
+static uint32_t shown[FRONT_SCREEN_W * TALL3D_SCALE_MAX * 2 * FRONT_SCREEN_H * TALL3D_SCALE_MAX];
 static uint32_t shown_frame, drawn_frame;
 static SDL_mutex *shown_lock;
 
@@ -281,6 +291,8 @@ static void settings_path(char *out, size_t size)
 /* The tall view as the settings have it: it takes effect when the game starts (the second 3D
  * engine cannot be started later), so it is kept apart from what this run uses (opt.tall). */
 static int tall_setting = 1;
+/* the 3D scene's size, likewise taking effect at the next start */
+static int resolution_setting = 1;
 /* "arrange=1": the settings screen asks for the arranging of the buttons (settings_apply) */
 static int arrange_asked;
 
@@ -302,6 +314,8 @@ static void settings_load(void)
             tall_setting = v != 0;
         } else if (sscanf(line, "sound=%d", &v) == 1) {
             opt.sound = v != 0;
+        } else if (sscanf(line, "resolution=%d", &v) == 1) {
+            resolution_setting = v < 1 ? 1 : v > TALL3D_SCALE_MAX ? TALL3D_SCALE_MAX : v;
         } else if (sscanf(line, "arrange=%d", &v) == 1) {
             arrange_asked = v != 0;
         } else {
@@ -321,6 +335,7 @@ static void settings_save(void)
         fprintf(f, "resetti=%d\n", opt.resetti);
         fprintf(f, "tall=%d\n", tall_setting);
         fprintf(f, "sound=%d\n", opt.sound);
+        fprintf(f, "resolution=%d\n", resolution_setting);
         touch_settings_write(f);
         fclose(f);
     }
@@ -383,7 +398,7 @@ static int open_window(void)
         renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_SOFTWARE);
     }
     screens = renderer != NULL ? SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_STREAMING,
-                                                   FRONT_SCREEN_W, 2 * FRONT_SCREEN_H)
+                                                   PICTURE_W, PICTURE_H)
                                : NULL;
     if (screens == NULL) {
         tell("acww-kor", SDL_GetError());
@@ -412,17 +427,17 @@ static int sharp_factor;
 
 static SDL_Texture *enlarged(const SDL_Rect *to)
 {
-    int factor = (to->w + FRONT_SCREEN_W - 1) / FRONT_SCREEN_W;
-    factor = factor < 1 ? 1 : factor > 4 ? 4 : factor;
-    if (opt.linear || to->w == FRONT_SCREEN_W * factor || !SDL_RenderTargetSupported(renderer)) {
+    int factor = (to->w + PICTURE_W - 1) / PICTURE_W, most = 4 / picture_scale;
+    factor = factor < 1 ? 1 : factor > most ? (most < 1 ? 1 : most) : factor;
+    if (opt.linear || to->w == PICTURE_W * factor || !SDL_RenderTargetSupported(renderer)) {
         return screens; /* linear was asked for, or the size is a whole multiple: as it is */
     }
     if (sharp == NULL || sharp_factor != factor) {
         if (sharp != NULL) {
             SDL_DestroyTexture(sharp);
         }
-        sharp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_TARGET, FRONT_SCREEN_W * factor,
-                                  2 * FRONT_SCREEN_H * factor);
+        sharp = SDL_CreateTexture(renderer, SDL_PIXELFORMAT_RGB888, SDL_TEXTUREACCESS_TARGET, PICTURE_W * factor,
+                                  PICTURE_H * factor);
         sharp_factor = factor;
         if (sharp == NULL) {
             return screens;
@@ -452,7 +467,7 @@ static void draw(void)
 {
     if (shown_frame != drawn_frame) {
         SDL_LockMutex(shown_lock);
-        SDL_UpdateTexture(screens, NULL, shown, FRONT_SCREEN_W * (int) sizeof(uint32_t));
+        SDL_UpdateTexture(screens, NULL, shown, PICTURE_W * (int) sizeof(uint32_t));
         drawn_frame = shown_frame;
         SDL_UnlockMutex(shown_lock);
     }
@@ -650,7 +665,7 @@ static uint32_t pad_keys(void)
 
 static void screenshot(void)
 {
-    static uint32_t copy[FRONT_SCREEN_W * FRONT_SCREEN_H * 2];
+    static uint32_t copy[sizeof(shown) / sizeof(shown[0])];
     SDL_LockMutex(shown_lock);
     memcpy(copy, shown, sizeof(copy));
     SDL_UnlockMutex(shown_lock);
@@ -659,7 +674,7 @@ static void screenshot(void)
     char path[PATH_SIZE + 64];
     snprintf(path, sizeof(path), "%s/acww-%04d%02d%02d-%02d%02d%02d.png", opt.data, t->tm_year + 1900, t->tm_mon + 1,
              t->tm_mday, t->tm_hour, t->tm_min, t->tm_sec);
-    SDL_Log(png_write(path, copy, FRONT_SCREEN_W, 2 * FRONT_SCREEN_H) == 0 ? "play: screenshot %s" : "play: cannot write %s",
+    SDL_Log(png_write(path, copy, PICTURE_W, PICTURE_H) == 0 ? "play: screenshot %s" : "play: cannot write %s",
             path);
 }
 
@@ -769,27 +784,81 @@ static void handle(const SDL_Event *e)
 
 /* The drawing thread's frames ---------------------------------------------------------------- */
 
-/* The 3D scene's upper part (tall3d.h) over the upper screen: opaque where the scene is,
- * blended at its translucent pixels and antialiased edges, nothing where it drew nothing. */
-static void lay_tall(uint32_t *upper)
+/* The picture put together from the frame the runtime finished (both screens at the DS's
+ * size) and what the copies of the engines drew for it (tall3d.h, mix2d.h):
+ *
+ *   - the upper screen, enlarged, with the 3D scene's upper part over it where the tall view
+ *     has something to show: opaque where the scene is, blended at its translucent pixels
+ *     and smoothed edges, with the main screen's brightness so fades go together;
+ *   - the lower screen: at the DS's size the runtime's own; larger, the 3D scene's lower part
+ *     mixed with the game's 2D layers by the 2D engine's three answers (mix2d.h).
+ */
+static uint32_t six_to_eight(uint32_t c)
 {
-    static uint32_t tall[TALL3D_H][TALL3D_W];
-    if (!tall3d_frame(tall)) {
-        return;
+    return c << 2 | c >> 4;
+}
+
+static void put_together(const uint32_t *upper, const uint32_t *lower)
+{
+    const int n = picture_scale, w = PICTURE_W, half = FRONT_SCREEN_H * n;
+    const uint32_t *up3 = NULL, *low3 = NULL, *black = NULL, *white = NULL, *none = NULL;
+    int stride = 0;
+    uint32_t bright = 0;
+    int have = tall3d_picture(&up3, &low3, &stride, &bright);
+    int mix = have && low3 != NULL && mix2d_answers(&black, &white, &none);
+    /* the main engine's master brightness: mode 1 towards white, 2 towards black, by factor/16 */
+    uint32_t mode = (bright >> 14) & 3, factor = bright & 31;
+    factor = factor > 16 ? 16 : factor;
+
+    for (int y = 0; y < half; y++) {
+        const uint32_t *from = upper + (y / n) * FRONT_SCREEN_W, *scene = have && up3 != NULL ? up3 + y * stride : NULL;
+        uint32_t *to = shown + y * w;
+        for (int x = 0; x < w; x++) {
+            uint32_t out = from[x / n], p = scene != NULL ? scene[x] : 0, a = p >> 24;
+            if (a != 0) {
+                uint32_t mixed = 0;
+                for (int k = 0; k < 3; k++) { /* red, green, blue */
+                    uint32_t c = (p >> (8 * k)) & 63, old = (out >> (16 - 8 * k)) & 255;
+                    if (mode == 1) {
+                        c += (63 - c) * factor / 16;
+                    } else if (mode == 2) {
+                        c -= c * factor / 16;
+                    }
+                    c = six_to_eight(c);
+                    mixed |= (a >= 31 ? c : (c * a + old * (31 - a)) / 31) << (16 - 8 * k);
+                }
+                out = mixed;
+            }
+            to[x] = out;
+        }
     }
-    for (int y = 0; y < TALL3D_H; y++) {
-        for (int x = 0; x < TALL3D_W; x++) {
-            uint32_t p = tall[y][x], a = p >> 24;
-            if (a == 0) {
-                continue;
+    for (int y = 0; y < half; y++) {
+        int line = (y / n) * FRONT_SCREEN_W;
+        uint32_t *to = shown + (half + y) * w;
+        if (!mix) {
+            for (int x = 0; x < w; x++) {
+                to[x] = lower[line + x / n];
             }
-            uint32_t *to = &upper[y * FRONT_SCREEN_W + x], out = 0;
-            for (int k = 0; k < 3; k++) { /* red, green, blue: 6 bits here, 8 on the screen */
-                uint32_t c = (p >> (8 * k)) & 63, old = (*to >> (16 - 8 * k)) & 255;
-                c = c << 2 | c >> 4;
-                out |= (a >= 31 ? c : (c * a + old * (31 - a)) / 31) << (16 - 8 * k);
+            continue;
+        }
+        const uint32_t *scene = low3 + y * stride;
+        for (int x = 0; x < w; x++) {
+            uint32_t p = scene[x], a = p >> 24, b = black[line + x / n], wh = white[line + x / n], nn = none[line + x / n];
+            uint32_t out = 0;
+            for (int k = 0; k < 3; k++) {
+                int32_t without = (int32_t) ((nn >> (6 * k)) & 63), value = without;
+                if (a != 0) {
+                    int32_t lo = (int32_t) ((b >> (6 * k)) & 63), hi = (int32_t) ((wh >> (6 * k)) & 63);
+                    int32_t c = (int32_t) ((p >> (8 * k)) & 63);
+                    value = lo + ((hi - lo) * c + 31) / 63;
+                    if (a < 31) {
+                        value = (without * (int32_t) (31 - a) + value * (int32_t) a + 15) / 31;
+                    }
+                    value = value < 0 ? 0 : value > 63 ? 63 : value;
+                }
+                out |= six_to_eight((uint32_t) value) << (16 - 8 * k);
             }
-            *to = out;
+            to[x] = out;
         }
     }
 }
@@ -797,17 +866,13 @@ static void lay_tall(uint32_t *upper)
 static void on_frame_output(uint32_t frame, const uint32_t *upper, const uint32_t *lower)
 {
     SDL_LockMutex(shown_lock);
-    memcpy(shown, upper, sizeof(uint32_t) * FRONT_SCREEN_W * FRONT_SCREEN_H);
-    memcpy(shown + FRONT_SCREEN_W * FRONT_SCREEN_H, lower, sizeof(uint32_t) * FRONT_SCREEN_W * FRONT_SCREEN_H);
-    if (opt.tall) {
-        lay_tall(shown);
-    }
+    put_together(upper, lower);
     shown_frame = frame + 1;
     for (int i = 0; i < opt.shot_count; i++) {
         if (opt.shots[i] == frame) {
             char path[PATH_SIZE + 64];
             snprintf(path, sizeof(path), "%s/frame-%05u.png", opt.data, frame);
-            png_write(path, shown, FRONT_SCREEN_W, 2 * FRONT_SCREEN_H);
+            png_write(path, shown, PICTURE_W, PICTURE_H);
         }
     }
     SDL_UnlockMutex(shown_lock);
@@ -982,9 +1047,10 @@ int main(int argc, char **argv)
     opt.scale = 2;
     opt.tall = 1;
     opt.sound = 1;
+    opt.resolution = 1;
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
-    int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0; /* as the settings say, unless the command line does */
+    int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0, resolution = 0; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         int more = i + 1 < argc;
@@ -996,6 +1062,8 @@ int main(int argc, char **argv)
             opt.linear = 1;
         } else if (strcmp(a, "--touch") == 0) {
             opt.overlay = 1;
+        } else if (strcmp(a, "--resolution") == 0 && more) {
+            resolution = atoi(argv[++i]);
         } else if (strcmp(a, "--no-sound") == 0) {
             no_sound = 1;
         } else if (strcmp(a, "--resetti") == 0) {
@@ -1052,6 +1120,8 @@ int main(int argc, char **argv)
     if (!two_screens) {
         opt.tall = tall_setting;
     }
+    opt.resolution = resolution > 0 ? resolution : resolution_setting;
+    opt.resolution = opt.resolution < 1 ? 1 : opt.resolution > TALL3D_SCALE_MAX ? TALL3D_SCALE_MAX : opt.resolution;
     if (no_sound) {
         opt.sound = 0;
     }
@@ -1119,7 +1189,9 @@ int main(int argc, char **argv)
     SDL_Log("play: keys: arrows = +Control Pad, X = A, Z = B, S = X, A = Y, Q = L, W = R, Enter = START,");
     SDL_Log("      Shift or Backspace = SELECT, mouse on the lower screen = touch, Tab = fast forward, F12 = screenshot");
 
-    tall3d_enable(opt.tall);
+    picture_scale = opt.resolution;
+    tall3d_enable(opt.tall, picture_scale);
+    mix2d_enable(picture_scale > 1);
     shown_lock = SDL_CreateMutex();
     counter_hz = (double) SDL_GetPerformanceFrequency();
     ticks_per_frame = counter_hz * DS_CYCLES_PER_FRAME / DS_BUS_HZ;

@@ -1,9 +1,41 @@
 <p align="center"><b>English</b> · <a href="renderer.ko.md">한국어</a></p>
 
-# The GPU renderer (plan)
+# A larger 3D picture, and the GPU renderer (plan)
 
-Not written yet. This page is the plan for the roadmap's item 4: the 3D scene drawn by the
-GPU at the phone's own resolution, with antialiasing, through Vulkan.
+The roadmap's item 4 is the 3D scene drawn by the GPU at the phone's own resolution, with
+antialiasing, through Vulkan. That renderer is not written yet. What there is, as of 0.6.0, is
+the scene drawn at 2 or 3 times the DS's size by the DS's own rules, which is the picture the
+GPU renderer will be checked against, and the mixing of a larger 3D picture with the game's
+2D layers, which the GPU renderer will use as it is.
+
+## The larger picture there is now
+
+`--resolution 2` (or 3; `resolution=` in the settings, "3D resolution" on Android's settings
+screen). Off by default: it is heavy.
+
+- **The scene, in tiles** (`port/src/tall3d.c`). The view is cut into tiles of the DS's size,
+  `scale` x `scale` to a screen. Each tile has a copy of the decomp's 3D engine
+  (`gpu3d_tile.c`, the engine unchanged) that gets the game's commands with the projection
+  zoomed onto its tile, and draws it as its whole screen. Side by side the tiles are the
+  scene at `scale` times the size, every pixel made by the engine's own rules: textures,
+  shading, edges, fog. Each tile has a thread: it plays the frame's commands into its engine
+  when the frame is complete and draws when the drawing thread comes to that frame, so the
+  tiles work on as many cores as there are.
+- **The 2D layers mixed in** (`port/src/mix2d.c`). Three more copies of the 2D engine draw
+  each line with a 3D layer that is all black, all white and absent; from the three answers
+  the front end works out each pixel of the large picture for the colour the large 3D scene
+  has there (`put_together` in `front_sdl.c`). The game's dialogs, icons and fades lie over
+  the large scene as they do over the small one.
+
+Checked: at size 1 the picture is the same file as before; at 2 and 3 the runtime's own
+frames are still the decomp's (the copies only read); the threaded tiles give the same
+pictures as tiles drawn one after another.
+
+Cost, on the 4-core machine this was written on, the new-game recording unpaced: 1x about
+130 frames a second, 2x about 55 (35 before the tiles had threads). A phone will be slower.
+That is why this is not the way to a phone's resolution, only the reference for it.
+
+# The GPU renderer (plan)
 
 ## What there is now
 
@@ -41,11 +73,10 @@ again at the larger size.
 
 ## Order
 
-1. the scene handed out, and a second software rasteriser in the port that draws it at any
-   whole multiple of the DS's size, checked against the decomp's at 1x: this proves the
-   hand-over and is the reference for the shaders;
-2. the three-answer mix of the 2D layers, checked the same way at 1x;
-3. the Vulkan renderer, a feature at a time against that reference, on a software Vulkan
+1. done another way: the larger picture above is the reference, made by the decomp's own
+   rasteriser in tiles;
+2. done: the three-answer mix of the 2D layers;
+3. the scene handed out of the engine as a list of polygons, and the Vulkan renderer, a feature at a time against that reference, on a software Vulkan
    driver here and then on phones;
 4. the settings: resolution (automatic by default), antialiasing, and the software
    renderer kept as a choice.

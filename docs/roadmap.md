@@ -5,7 +5,7 @@
 What the port does now and the order the rest goes in. The facts about the decomp are from
 `decomp/` at the pinned commit (`docs/runtime.md`, `docs/play.md` and the runtime's sources).
 
-## Where it stands (0.5.0)
+## Where it stands (0.6.0)
 
 | | State |
 |---|---|
@@ -76,7 +76,9 @@ What the port does now and the order the rest goes in. The facts about the decom
    runtime also runs the game's sequencer, and the frames then differ from the decomp's
    sound-off recordings (the checks are made with sound off). To do: a volume setting, and
    what a phone that runs slower than the DS should do with the gaps.
-4. **A Vulkan renderer** ([renderer.md](renderer.md) has the plan). The DS's 3D engine drawn by the GPU, so the 3D scene comes out at the
+4. **A Vulkan renderer** ([renderer.md](renderer.md) has the plan). Done so far: the scene at 2
+   or 3 times the DS's size by the DS's own rules (an option, heavy), and the mixing of a
+   larger 3D picture with the 2D layers; both are what the GPU renderer is built on. The DS's 3D engine drawn by the GPU, so the 3D scene comes out at the
    phone's own resolution, with antialiasing; the 2D layers scaled over it. OpenGL ES stays as
    the fallback. This replaces the software renderer's output, so the frame checks need a
    mode of their own (the software renderer stays the reference).

@@ -12,6 +12,7 @@
     <string name="settings_arrange">Arrange the buttons…</string>
     <string name="settings_back">Back to the game</string>
     <string name="settings_tall">One tall picture: the 3D scene continued onto the upper screen (takes effect at the next start)</string>
+    <string name="settings_resolution">3D resolution (experimental; takes effect at the next start; each step is much heavier)</string>
     <string name="settings_save_title">Save data</string>
     <string name="settings_save_export">Export the save…</string>
     <string name="settings_save_import">Import a save…</string>

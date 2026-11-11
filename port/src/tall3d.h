@@ -1,15 +1,22 @@
-/* The tall view: the 3D scene continued above the lower screen, so the two screens show one
- * picture instead of a picture and a sky.
+/* The picture beyond the game's own: the 3D scene continued above the lower screen (the tall
+ * view), and the scene drawn larger than the DS draws it.
  *
- * The game draws its 3D scene on one screen (256 x 192). Here a second copy of the 3D engine
- * (gpu3d_upper.c) is given the same commands with the projection moved up by one screen
- * (y' = y - 2w in clip coordinates: what was just above the top edge is now inside), and
- * draws the part of the scene the game's own picture ends below. The front end lays that over
- * the upper screen. The game and its frames are untouched: the main engine gets the commands
- * as they are, and nothing reads the second engine but the front end.
+ * The game draws its 3D scene on one screen, 256 x 192. Here further copies of the 3D engine
+ * (gpu3d_tile.c) are given the same commands with the projection changed, each to see one
+ * part of a larger view as its whole screen:
  *
- * What it cannot add is what the game does not send: objects the game itself leaves out
- * because they are off its screen.
+ *   - the tall view: the part above the lower screen's top edge (y' = y - 2w in clip
+ *     coordinates), which the front end lays over the upper screen;
+ *   - a larger size: the view cut into tiles of the DS's size, scale x scale to a screen,
+ *     each tile's copy zoomed onto it (x' = scale * x + ox * w, y' = scale * y + oy * w). The
+ *     tiles side by side are the scene at `scale` times the DS's size, drawn by the DS's own
+ *     rules: every pixel is the engine's.
+ *
+ * The game and its frames are untouched: the main engine gets the commands as they are and
+ * draws the picture the game sees, and nothing reads the copies but the front end.
+ *
+ * What it cannot add is what the game does not send: what the game itself leaves out because
+ * it is off its screen (game_hooks.c widens that for the game's objects).
  */
 #ifndef ACWW_PORT_TALL3D_H
 #define ACWW_PORT_TALL3D_H
@@ -19,14 +26,20 @@
 #define TALL3D_W 256
 #define TALL3D_H 192
 
-/* Before the run starts: whether the second engine runs at all. Off, the cost is nothing. */
-void tall3d_enable(int on);
+/* Before the run starts: the tall view or not, and the size (1 to 3 times the DS's). At size
+ * 1 without the tall view no copy runs, and the cost is nothing. */
+void tall3d_enable(int tall_view, int scale);
+int tall3d_scale(void);
 
 /* For the frame the drawing thread has just finished (call it from frame_output_hook): the
- * upper part that goes with the 3D picture on the lower screen, as the engine gives it,
+ * copies' picture that goes with the 3D picture on the lower screen. Returns 0 when the
+ * lower screen is not showing the 3D picture. Else `*upper` is the upper screen's part
+ * (NULL without the tall view, or during a wipe that hides the layer outside its windows)
+ * and `*lower` the lower screen's (NULL at size 1, where the game's own picture is the one):
+ * each 256 * scale pixels wide and 192 * scale high, rows `*stride` pixels apart, a pixel
  * red | green << 8 | blue << 16 (6 bits each) | alpha << 24 (5 bits, 0 where nothing was
- * drawn), with the main engine's master brightness applied. Returns 0 when the lower screen
- * is not showing the 3D picture (nothing to lay over). */
-int tall3d_frame(uint32_t pixels[TALL3D_H][TALL3D_W]);
+ * drawn). `*brightness` is the main engine's MASTER_BRIGHT, which the upper part is to be
+ * shown with. */
+int tall3d_picture(const uint32_t **upper, const uint32_t **lower, int *stride, uint32_t *brightness);
 
 #endif

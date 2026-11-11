@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.5.0).** The game runs in the port, and its frames are the decomp's own bit
+> **Early days (0.6.0).** The game runs in the port, and its frames are the decomp's own bit
 > for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)). It has **not yet
 > been run on a real phone**. See the [roadmap](docs/roadmap.md).
 
@@ -37,6 +37,8 @@ This repository adds what the other platforms need, without changing the decomp 
   pacing and the save file;
 - the **tall view**: the 3D scene continued onto the upper screen, so the two screens show one
   picture ([docs/tall-view.md](docs/tall-view.md));
+- a **larger 3D picture** (optional, heavy): the scene at 2 or 3 times the DS's size, drawn by
+  the DS's own rules and mixed with the game's 2D layers ([docs/renderer.md](docs/renderer.md));
 - **sound**: the runtime's own mixer heard through an SDL audio device
   (`port/src/sound_sdl.c`; the decomp's device is Windows-only);
 - the **ROM check and split** done on the device (`port/src/rom_prep.c`, the same split as the

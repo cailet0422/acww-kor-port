@@ -9,6 +9,8 @@ import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.CheckBox;
 import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -63,6 +65,7 @@ public class SettingsActivity extends Activity {
         column.addView(choice("resetti", false, R.string.settings_resetti));
         column.addView(choice("full_touch", false, R.string.settings_full_touch));
         column.addView(choice("tall", true, R.string.settings_tall));
+        column.addView(resolution());
         /* a request the game takes when it is back in front: the arranging opens */
         column.addView(button(R.string.settings_arrange, () -> {
             write("full_touch", false);
@@ -120,6 +123,29 @@ public class SettingsActivity extends Activity {
         return box;
     }
 
+    /** The 3D scene's size: 1, 2 or 3 times the DS's, taking effect at the next start. */
+    private LinearLayout resolution() {
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        TextView label = new TextView(this);
+        label.setText(R.string.settings_resolution);
+        label.setTextSize(16);
+        box.addView(label);
+        RadioGroup group = new RadioGroup(this);
+        group.setOrientation(RadioGroup.HORIZONTAL);
+        int now = readNumber("resolution", 1);
+        for (int n = 1; n <= 3; n++) {
+            RadioButton b = new RadioButton(this);
+            b.setText(n + "x");
+            b.setId(n);
+            group.addView(b);
+        }
+        group.check(now < 1 || now > 3 ? 1 : now);
+        group.setOnCheckedChangeListener((g, id) -> writeLine("resolution", String.valueOf(id)));
+        box.addView(group);
+        return box;
+    }
+
     private Button button(int label, Runnable action) {
         Button b = new Button(this);
         b.setText(label);
@@ -154,9 +180,26 @@ public class SettingsActivity extends Activity {
         return byDefault;
     }
 
+    private int readNumber(String key, int byDefault) {
+        for (String line : lines()) {
+            if (line.startsWith(key + "=")) {
+                try {
+                    return Integer.parseInt(line.substring(key.length() + 1).trim());
+                } catch (NumberFormatException e) {
+                    return byDefault;
+                }
+            }
+        }
+        return byDefault;
+    }
+
     private void write(String key, boolean on) {
+        writeLine(key, on ? "1" : "0");
+    }
+
+    private void writeLine(String key, String value) {
         List<String> lines = lines();
-        String line = key + "=" + (on ? "1" : "0");
+        String line = key + "=" + value;
         boolean found = false;
         for (int i = 0; i < lines.size(); i++) {
             if (lines.get(i).startsWith(key + "=")) {
