@@ -1,0 +1,83 @@
+# A release of the app: a version's APK, signed with the project's key, published on GitHub
+# with the version's notes (docs/releases.md). The app looks there for its updates.
+#
+# Runs when the tag "v<version>" is pushed (port/VERSION has the version), or by hand.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-24.04
+    env:
+      KEYSTORE_BASE64: ${{ secrets.RELEASE_KEYSTORE_BASE64 }}
+      ACWW_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+      ACWW_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+      ACWW_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - name: The version, and the key it is signed with
+        run: |
+          version=$(cat port/VERSION)
+          echo "VERSION=$version" >> "$GITHUB_ENV"
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "v$version" ]; then
+            echo "::error::the tag is $GITHUB_REF_NAME and port/VERSION says $version"
+            exit 1
+          fi
+          if gh release view "v$version" > /dev/null 2>&1; then
+            echo "::error::v$version is released already"
+            exit 1
+          fi
+          # an update installs only over an app signed with the same key: every release has
+          # to be signed with the one the first was (docs/releases.md)
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.keystore"
+          elif [ -f android/release.keystore ]; then
+            cp android/release.keystore "$RUNNER_TEMP/release.keystore"
+          else
+            echo "::error::no release key: the RELEASE_KEYSTORE_BASE64 secret is not set (docs/releases.md)"
+            exit 1
+          fi
+          # (unset secrets are empty, not absent: the build's own defaults then)
+          [ -n "$ACWW_KEYSTORE_PASSWORD" ] || echo "ACWW_KEYSTORE_PASSWORD=android" >> "$GITHUB_ENV"
+          [ -n "$ACWW_KEY_ALIAS" ] || echo "ACWW_KEY_ALIAS=androiddebugkey" >> "$GITHUB_ENV"
+          [ -n "$ACWW_KEY_PASSWORD" ] || echo "ACWW_KEY_PASSWORD=android" >> "$GITHUB_ENV"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - name: SDL2 source
+        run: git clone --depth 1 --branch release-2.30.9 https://github.com/libsdl-org/SDL.git android/SDL
+      - name: NDK and CMake
+        run: yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" "cmake;3.22.1" > /dev/null
+      - name: Build the APK
+        working-directory: android
+        run: ./gradlew --no-daemon assembleRelease -PreleaseKeystore="$RUNNER_TEMP/release.keystore"
+      - name: Signed with the project's key
+        run: |
+          apk="acww-kor-port-$VERSION.apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$apk"
+          signer=$(ls "$ANDROID_HOME"/build-tools/*/apksigner | sort -V | tail -1)
+          is=$("$signer" verify --print-certs "$apk" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p')
+          want=$(tr -d ' \n' < android/release-key.sha256)
+          if [ "$is" != "$want" ]; then
+            echo "::error::signed with $is, and the project's key is $want: this APK would not install as an update"
+            exit 1
+          fi
+          sha256sum "$apk" > SHA256SUMS
+          rm -f "$RUNNER_TEMP/release.keystore"
+      - name: The version's notes
+        run: python3 port/tools/release_notes.py "$VERSION" > notes.md
+      - name: Publish
+        run: |
+          gh release create "v$VERSION" "acww-kor-port-$VERSION.apk" SHA256SUMS \
+            --title "acww-kor-port $VERSION" --notes-file notes.md --target "$GITHUB_SHA"

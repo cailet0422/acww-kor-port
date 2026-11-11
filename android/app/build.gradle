@@ -1,0 +1,106 @@
+// The Android build (docs/building.md): port/CMakeLists.txt as libmain.so, SDL2 as libSDL2.so,
+// and SDL's Java glue.
+//
+// Needs the SDL2 source tree: put it at android/SDL or pass -PsdlDir=/path/to/SDL.
+// -Pabis=x86_64 builds for an x86 emulator instead of ARM phones.
+plugins {
+    id 'com.android.application'
+}
+
+def sdlDir = file(project.findProperty('sdlDir') ?: "${rootDir}/SDL")
+def portDir = file("${rootDir}/../port")
+// -PdecompRoot=/path/to/acww-decomp: a decomp checkout other than the decomp/ submodule
+def decompRoot = project.findProperty('decompRoot') ?: file("${rootDir}/../decomp").absolutePath
+// The port's version (port/VERSION); versionCode grows with it: 0.1.0 is 100
+def portVersion = file("${portDir}/VERSION").text.trim()
+def portVersionCode = portVersion.tokenize('.').collect { it as int }.with { it[0] * 10000 + it[1] * 100 + it[2] }
+
+// The app's strings are Korean by default (res/values) with English beside them (values-en).
+// Android picks a language from the phone's whole list of languages, and a list of Korean,
+// then English, would be answered with English if Korean existed only as the default: so
+// the Korean strings are also given under their own name (values-ko), as a copy made here.
+def koreanRes = file("${buildDir}/generated/korean-res")
+tasks.register('koreanStrings', Copy) {
+    from 'src/main/res/values/strings.xml'
+    into "${koreanRes}/values-ko"
+}
+preBuild.dependsOn 'koreanStrings'
+
+if (!file("${sdlDir}/android-project/app/src/main/java/org/libsdl/app/SDLActivity.java").exists()) {
+    throw new GradleException("SDL2 source not found at ${sdlDir}: clone it there or pass -PsdlDir (docs/building.md)")
+}
+
+android {
+    namespace 'io.github.cailet0422.acwwkor'
+    compileSdk 34
+    ndkVersion '27.2.12479018'
+
+    defaultConfig {
+        applicationId 'io.github.cailet0422.acwwkor'
+        minSdk 21
+        targetSdk 34
+        versionCode portVersionCode
+        versionName portVersion
+        ndk {
+            // Both ARM ABIs: recent phones run only 64-bit apps (docs/64bit.md).
+            // -Pabis=x86_64 (or x86) builds for an emulator instead
+            abiFilters(*(project.findProperty('abis') ?: 'armeabi-v7a,arm64-v8a').split(','))
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DSDL_SOURCE_DIR=${sdlDir}",
+                          "-DDECOMP_ROOT=${decompRoot}",
+                          '-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON'
+            }
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path "${portDir}/CMakeLists.txt"
+            version '3.22.1'
+        }
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += "${sdlDir}/android-project/app/src/main/java"
+            res.srcDirs += koreanRes
+        }
+    }
+
+    // The project's release key, when one is given (docs/releases.md): -PreleaseKeystore=FILE,
+    // with its passwords and alias in the environment (ACWW_KEYSTORE_PASSWORD, ACWW_KEY_ALIAS,
+    // ACWW_KEY_PASSWORD; "android" and "androiddebugkey" without). Without it the build is
+    // signed with this machine's debug key, and installs as an update only over builds made on
+    // this machine.
+    def releaseKeystore = project.findProperty('releaseKeystore')
+    signingConfigs {
+        if (releaseKeystore) {
+            project_release {
+                storeFile file(releaseKeystore)
+                storePassword System.getenv('ACWW_KEYSTORE_PASSWORD') ?: 'android'
+                keyAlias System.getenv('ACWW_KEY_ALIAS') ?: 'androiddebugkey'
+                keyPassword System.getenv('ACWW_KEY_PASSWORD') ?: 'android'
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig releaseKeystore ? signingConfigs.project_release : signingConfigs.debug
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_1_8
+        targetCompatibility JavaVersion.VERSION_1_8
+    }
+
+    packagingOptions {
+        jniLibs {
+            useLegacyPackaging true
+        }
+    }
+}
