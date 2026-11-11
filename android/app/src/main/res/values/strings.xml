@@ -5,4 +5,19 @@
     <string name="rom_pick">Choose ROM file</string>
     <string name="rom_copying">Copying…</string>
     <string name="rom_copy_failed">The file could not be copied. Try again.</string>
+    <string name="settings_title">Settings</string>
+    <string name="settings_resetti">Mr. Resetti comes after quitting without saving</string>
+    <string name="settings_full_touch">Full-touch mode (touch buttons hidden)</string>
+    <string name="settings_tall">One tall picture: the 3D scene continued onto the upper screen (takes effect at the next start)</string>
+    <string name="settings_save_title">Save data</string>
+    <string name="settings_save_export">Export the save…</string>
+    <string name="settings_save_import">Import a save…</string>
+    <string name="settings_rom_change">Choose another ROM…</string>
+    <string name="settings_rom_change_ask">The app\'s copy of the ROM will be removed and the app will close. The save is kept.</string>
+    <string name="settings_save_none">There is no save yet.</string>
+    <string name="settings_save_exported">The save was exported.</string>
+    <string name="settings_save_wrong">That file is not a save (a save is 256 KB).</string>
+    <string name="settings_failed">That did not work.</string>
+    <string name="settings_restart">Closing. Start the app again.</string>
+    <string name="settings_note">To move or resize the touch buttons, hold the mark with three dots in the game. An imported save replaces the current one (kept as acww.sav.before-import) and closes the app.</string>
 </resources>

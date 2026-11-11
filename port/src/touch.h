@@ -25,6 +25,7 @@ typedef struct TouchPen {
     int x, y;    /* in window pixels (front_sdl.c maps them onto the lower screen) */
     int toggle;  /* the mark was tapped: buttons off or on */
     int arranged; /* the arranging was closed: the settings are to be saved */
+    int settings; /* the bar's sliders were touched: the settings screen is to be opened */
 } TouchPen;
 
 /* A finger landing, moving or lifting at (x, y) in window pixels, in frame `frame`. */
@@ -37,6 +38,9 @@ int touch_held(uint32_t frame);
 /* Whether the buttons are being arranged, and closing it (Android's Back): 1 if it was open. */
 int touch_arranging(void);
 int touch_arrange_close(void);
+
+/* Whether the arranging's bar has the sliders that open the settings screen. */
+void touch_settings_control(int on);
 
 /* the buttons the fingers hold now */
 uint32_t touch_keys(void);

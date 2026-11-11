@@ -30,5 +30,9 @@
             android:configChanges="layoutDirection|locale|orientation|uiMode|screenLayout|screenSize|smallestScreenSize|keyboard|keyboardHidden|navigation"
             android:preferMinimalPostProcessing="true"
             android:launchMode="singleInstance" />
+        <!-- The settings, opened from the game (SettingsActivity.java) -->
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false" />
     </application>
 </manifest>

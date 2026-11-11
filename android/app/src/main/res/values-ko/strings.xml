@@ -4,4 +4,19 @@
     <string name="rom_pick">ROM 파일 선택</string>
     <string name="rom_copying">복사하는 중…</string>
     <string name="rom_copy_failed">파일을 복사하지 못했습니다. 다시 시도해 주세요.</string>
+    <string name="settings_title">설정</string>
+    <string name="settings_resetti">저장하지 않고 끄면 도루묵씨 등장</string>
+    <string name="settings_full_touch">풀터치 모드 (터치 버튼 숨김)</string>
+    <string name="settings_tall">이어진 화면: 3D 장면을 위 화면까지 이어 그리기 (다음 실행부터 적용)</string>
+    <string name="settings_save_title">세이브 데이터</string>
+    <string name="settings_save_export">세이브 내보내기…</string>
+    <string name="settings_save_import">세이브 가져오기…</string>
+    <string name="settings_rom_change">다른 ROM 선택…</string>
+    <string name="settings_rom_change_ask">앱에 복사해 둔 ROM을 지우고 앱을 닫습니다. 세이브는 그대로 남습니다.</string>
+    <string name="settings_save_none">아직 세이브가 없습니다.</string>
+    <string name="settings_save_exported">세이브를 내보냈습니다.</string>
+    <string name="settings_save_wrong">세이브 파일이 아닙니다(세이브는 256KB입니다).</string>
+    <string name="settings_failed">처리하지 못했습니다.</string>
+    <string name="settings_restart">앱을 닫습니다. 다시 실행해 주세요.</string>
+    <string name="settings_note">터치 버튼을 옮기거나 크기를 바꾸려면 게임에서 점 세 개 표시를 길게 누르세요. 세이브를 가져오면 현재 세이브를 대신하고(기존 것은 acww.sav.before-import로 보관) 앱이 닫힙니다.</string>
 </resources>

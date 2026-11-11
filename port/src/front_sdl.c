@@ -20,6 +20,9 @@
  * game controllers, and on a touch screen buttons drawn around the screens (touch.c).
  */
 #include <SDL.h>
+#ifdef __ANDROID__
+#include <jni.h>
+#endif
 
 #include <errno.h>
 #include <stdint.h>
@@ -273,6 +276,10 @@ static void settings_path(char *out, size_t size)
     snprintf(out, size, "%s/settings.txt", opt.data);
 }
 
+/* The tall view as the settings have it: it takes effect when the game starts (the second 3D
+ * engine cannot be started later), so it is kept apart from what this run uses (opt.tall). */
+static int tall_setting = 1;
+
 static void settings_load(void)
 {
     char path[PATH_SIZE + 16], line[128];
@@ -287,6 +294,8 @@ static void settings_load(void)
             opt.full_touch = v != 0;
         } else if (sscanf(line, "resetti=%d", &v) == 1) {
             opt.resetti = v != 0;
+        } else if (sscanf(line, "tall=%d", &v) == 1) {
+            tall_setting = v != 0;
         } else {
             touch_settings_line(line);
         }
@@ -302,9 +311,36 @@ static void settings_save(void)
     if (f != NULL) {
         fprintf(f, "full_touch=%d\n", opt.full_touch);
         fprintf(f, "resetti=%d\n", opt.resetti);
+        fprintf(f, "tall=%d\n", tall_setting);
         touch_settings_write(f);
         fclose(f);
     }
+}
+
+/* The settings screen, where the platform has one: on Android, SettingsActivity, asked for
+ * through MainActivity.openSettings. It writes the settings' file, which is read again when
+ * the game comes back to the front (settings_apply). */
+static void open_settings(void)
+{
+#ifdef __ANDROID__
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    jobject activity = SDL_AndroidGetActivity();
+    if (env != NULL && activity != NULL) {
+        jclass cls = (*env)->GetObjectClass(env, activity);
+        jmethodID open = (*env)->GetMethodID(env, cls, "openSettings", "()V");
+        if (open != NULL) {
+            (*env)->CallVoidMethod(env, activity, open);
+        }
+        (*env)->DeleteLocalRef(env, cls);
+        (*env)->DeleteLocalRef(env, activity);
+    }
+#endif
+}
+
+static void settings_apply(void)
+{
+    settings_load();
+    game_hooks_resetti(opt.resetti);
 }
 
 /* The window -------------------------------------------------------------------------------- */
@@ -480,6 +516,9 @@ static void finger(TouchAction action, int64_t id, int x, int y)
     if (pen.arranged) {
         settings_save();
     }
+    if (pen.settings) {
+        open_settings();
+    }
     if (pen.changed) {
         int px = 0, py = 0;
         if (pen.down) {
@@ -614,6 +653,9 @@ static void handle(const SDL_Event *e)
     switch (e->type) {
         case SDL_QUIT:
             quit_asked = 1;
+            break;
+        case SDL_APP_DIDENTERFOREGROUND:
+            settings_apply(); /* the settings screen may have changed them */
             break;
         case SDL_APP_WILLENTERBACKGROUND:
         case SDL_APP_TERMINATING:
@@ -925,7 +967,7 @@ int main(int argc, char **argv)
     opt.tall = 1;
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
-    int full_touch = -1, resetti = -1; /* as the settings say, unless the command line does */
+    int full_touch = -1, resetti = -1, two_screens = 0; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         int more = i + 1 < argc;
@@ -955,6 +997,7 @@ int main(int argc, char **argv)
             opt.window_shot = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--two-screens") == 0) {
             opt.tall = 0;
+            two_screens = 1;
         } else if (strcmp(a, "--shot") == 0 && more && opt.shot_count < 8) {
             opt.shots[opt.shot_count++] = (uint32_t) strtoul(argv[++i], NULL, 10);
         } else if (strcmp(a, "--rtc") == 0 && more) {
@@ -987,6 +1030,14 @@ int main(int argc, char **argv)
     if (resetti >= 0) {
         opt.resetti = resetti;
     }
+    if (!two_screens) {
+        opt.tall = tall_setting;
+    }
+#ifdef __ANDROID__
+    touch_settings_control(1);
+#else
+    touch_settings_control(SDL_getenv("ACWW_SETTINGS_CONTROL") != NULL); /* to look at the bar */
+#endif
     SDL_Log("acww-kor-port %s, %d-bit", PORT_VERSION, (int) (8 * sizeof(void *)));
     snprintf(opt.rom, sizeof(opt.rom), "%s", rom != NULL ? rom : "");
     if (rom == NULL) {
