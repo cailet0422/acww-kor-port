@@ -1,12 +1,19 @@
 /* Buttons drawn on a touch screen, and the fingers on them. A finger that lands on a button
  * presses it, and can slide from one button to the next; one that lands on the lower screen
  * instead is the stylus until it lifts (one at a time). In the full-touch mode there are no
- * buttons, only the stylus. */
+ * buttons, only the stylus.
+ *
+ * The mark with three dots turns the buttons off and on when tapped. Held for a moment, it
+ * opens the arranging of the buttons: each can be dragged anywhere, the window over the
+ * picture included, and made smaller or larger; what the player arranges is kept for tall
+ * and for wide windows apart, as "button." lines of the settings.
+ */
 #ifndef ACWW_PORT_TOUCH_H
 #define ACWW_PORT_TOUCH_H
 
 #include <SDL.h>
 #include <stdint.h>
+#include <stdio.h>
 
 #include "front.h"
 
@@ -16,15 +23,30 @@ typedef struct TouchPen {
     int changed; /* the stylus moved, landed or lifted */
     int down;
     int x, y;    /* in window pixels (front_sdl.c maps them onto the lower screen) */
-    int toggle;  /* the finger landed on the mark that turns the buttons on and off */
+    int toggle;  /* the mark was tapped: buttons off or on */
+    int arranged; /* the arranging was closed: the settings are to be saved */
 } TouchPen;
 
-TouchPen touch_finger(const Layout *l, TouchAction action, int64_t finger, int x, int y);
+/* A finger landing, moving or lifting at (x, y) in window pixels, in frame `frame`. */
+TouchPen touch_finger(const Layout *l, TouchAction action, int64_t finger, int x, int y, uint32_t frame);
+
+/* Once a frame: 1 in the frame the mark has been held long enough, which opens the arranging
+ * (the buttons must be shown from then on). */
+int touch_held(uint32_t frame);
+
+/* Whether the buttons are being arranged, and closing it (Android's Back): 1 if it was open. */
+int touch_arranging(void);
+int touch_arrange_close(void);
 
 /* the buttons the fingers hold now */
 uint32_t touch_keys(void);
 /* the buttons pressed since the last call */
 uint32_t touch_taps(void);
+
+/* The player's arrangement in the settings: a line read (1 if it was one of these), and all
+ * of them written. */
+int touch_settings_line(const char *line);
+void touch_settings_write(FILE *f);
 
 void touch_draw(SDL_Renderer *r, const Layout *l, uint32_t held);
 

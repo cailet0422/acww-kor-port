@@ -71,7 +71,10 @@ Linux, `acww-kor --rom path/to/your.nds`. Building yourself: [docs/building.md](
 | touch screen | mouse on the lower screen | | a finger on the lower screen |
 
 On a touch screen the mark with three dots (or Back on Android) turns the buttons off and on:
-without them the game is played with the stylus alone, and the choice is remembered. Tab held
+without them the game is played with the stylus alone, and the choice is remembered. Hold the
+mark for a moment to arrange the buttons: drag each where you want it, the picture included,
+make the one you touched last smaller or larger with − and +, put all back with RESET, and
+close with the tick. Tall and wide screens keep their own arrangements. Tab held
 runs as fast as the machine can; F12 saves the screens as a PNG next to the save.
 
 The save is a 256 KB flash image (the `.sav` format emulators use): `acww.sav` in the app's

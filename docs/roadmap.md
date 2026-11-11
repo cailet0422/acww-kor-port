@@ -47,6 +47,8 @@ What the port does now and the order the rest goes in. The facts about the decom
    - a full-touch mode, the game played with the stylus alone and no buttons drawn: done. The
      mark with three dots, or Back on Android, turns the buttons on and off, and the choice
      is kept;
+   - the buttons where the player wants them: done. Each can be dragged and resized, for
+     tall and for wide screens apart (hold the mark);
    - the two screens as one picture: done for the 3D scene ([tall-view.md](tall-view.md));
    - **widening what the game draws above its own screen.** The game leaves out what is off
      the lower screen, so the upper part of the tall view lacks whatever lies wholly above it.

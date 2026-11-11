@@ -24,10 +24,16 @@ enum {
     DS_KEY_Y = 1u << 11,
 };
 
+/* What the player can move and resize (touch.h): the +Control Pad, the four face buttons
+ * together, and each of the others. */
+enum { ITEM_PAD, ITEM_FACE, ITEM_L, ITEM_R, ITEM_SELECT, ITEM_START, ITEM_COUNT };
+
 typedef struct Button {
     uint32_t key;
     const char *label;
-    int round;      /* a circle around (x + w / 2, y + h / 2), else a rounded-off rectangle */
+    int round;      /* a circle around (x + w / 2, y + h / 2), else a rectangle */
+    int item;       /* ITEM_... */
+    int over;       /* it lies over the picture: drawn as a dark patch */
     SDL_Rect r;
 } Button;
 
@@ -39,8 +45,8 @@ typedef struct Layout {
     SDL_Rect top, bottom; /* the DS's screens, the upper right above the lower: one picture */
     int touch;            /* a touch screen: the buttons can be drawn and touched */
     int full_touch;       /* the stylus alone: no buttons drawn */
-    int over;             /* the buttons lie over the picture (no room beside or below it) */
-    int pad_x, pad_y, pad_r; /* the +Control Pad: its centre and reach */
+    int wide;             /* the window is wider than the picture (else taller) */
+    int pad_x, pad_y, pad_r, pad_over; /* the +Control Pad: its centre and reach */
     Button buttons[LAYOUT_BUTTONS];
     int button_count;
     SDL_Rect toggle;      /* the small mark that turns the buttons on and off */
@@ -50,7 +56,8 @@ typedef struct Layout {
  * the whole width of a tall window, the whole height of a wide one; without a touch screen,
  * in whole multiples of the DS's size where that is at least 1. With `touch` and not
  * `full_touch`, the buttons go where there is room, below the picture in a tall window and
- * beside it in a wide one, and over its lower part where there is none. */
+ * beside it in a wide one, and over its lower part where there is none; then the player's own
+ * placing of them is applied (touch.h). */
 Layout layout_compute(int w, int h, int touch, int full_touch);
 
 #endif

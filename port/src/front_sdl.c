@@ -82,6 +82,7 @@ static void usage(void)
             "  --full-touch    start without the touch buttons (the stylus alone); the mark at the\n"
             "                  corner, or Back on Android, turns them on and off, and it is remembered\n"
             "  --size WxH      the window's starting size in pixels\n"
+            "  --touch-script FILE  play fingers from a file (\"FRAME down|move|up FINGER X Y\")\n"
             "  --window-shot N save the window as it is drawn at frame N as a PNG in DATA\n"
             "  --two-screens   the DS's two pictures as they are, without the 3D scene continued\n"
             "                  onto the upper screen\n"
@@ -281,6 +282,8 @@ static void settings_load(void)
         int v;
         if (sscanf(line, "full_touch=%d", &v) == 1) {
             opt.full_touch = v != 0;
+        } else {
+            touch_settings_line(line);
         }
     }
     fclose(f);
@@ -293,6 +296,7 @@ static void settings_save(void)
     FILE *f = fopen(path, "w");
     if (f != NULL) {
         fprintf(f, "full_touch=%d\n", opt.full_touch);
+        touch_settings_write(f);
         fclose(f);
     }
 }
@@ -460,6 +464,55 @@ static void toggle_buttons(void)
     settings_save();
 }
 
+/* A finger on the touch screen, at (x, y) in the window's pixels. */
+static void finger(TouchAction action, int64_t id, int x, int y)
+{
+    TouchPen pen = touch_finger(&layout, action, id, x, y, frame_now);
+    if (pen.toggle) {
+        toggle_buttons();
+    }
+    if (pen.arranged) {
+        settings_save();
+    }
+    if (pen.changed) {
+        int px = 0, py = 0;
+        if (pen.down) {
+            pen_at(pen.x, pen.y, 1, &px, &py);
+        }
+        pen_set(pen.down, px, py);
+    }
+    keys_taps |= touch_taps();
+}
+
+/* --touch-script FILE: fingers played from a file, to try the touch screen's handling
+ * without one. Lines of "FRAME down|move|up FINGER X Y", in the window's pixels and in the
+ * order of their frames. */
+static FILE *touch_script;
+static char touch_script_line[128];
+
+static void touch_script_play(uint32_t frame)
+{
+    while (touch_script != NULL) {
+        unsigned at, id;
+        int x, y;
+        char what[8];
+        if (touch_script_line[0] == 0 && fgets(touch_script_line, sizeof(touch_script_line), touch_script) == NULL) {
+            fclose(touch_script);
+            touch_script = NULL;
+            return;
+        }
+        if (sscanf(touch_script_line, "%u %7s %u %d %d", &at, what, &id, &x, &y) != 5) {
+            touch_script_line[0] = 0; /* a comment or an empty line */
+            continue;
+        }
+        if (at > frame) {
+            return;
+        }
+        finger(strcmp(what, "down") == 0 ? TOUCH_DOWN : strcmp(what, "up") == 0 ? TOUCH_UP : TOUCH_MOVE, id, x, y);
+        touch_script_line[0] = 0;
+    }
+}
+
 static uint32_t key_of(SDL_Keycode k)
 {
     switch (k) {
@@ -564,7 +617,12 @@ static void handle(const SDL_Event *e)
             if (e->key.keysym.sym == SDLK_TAB) {
                 fast_keyboard = 1;
             } else if (e->key.keysym.sym == SDLK_AC_BACK && !e->key.repeat) {
-                toggle_buttons(); /* Android's Back */
+                /* Android's Back: out of the arranging of the buttons, else buttons off or on */
+                if (touch_arrange_close()) {
+                    settings_save();
+                } else {
+                    toggle_buttons();
+                }
             } else if (e->key.keysym.sym == SDLK_F12 && !e->key.repeat) {
                 screenshot();
             } else {
@@ -619,21 +677,8 @@ static void handle(const SDL_Event *e)
             SDL_GetRendererOutputSize(renderer, &w, &h);
             x = (int) (e->tfinger.x * (float) w);
             y = (int) (e->tfinger.y * (float) h);
-            TouchPen pen = touch_finger(&layout, e->type == SDL_FINGERDOWN ? TOUCH_DOWN
-                                                 : e->type == SDL_FINGERUP ? TOUCH_UP
-                                                                           : TOUCH_MOVE,
-                                        (int64_t) e->tfinger.fingerId, x, y);
-            if (pen.toggle) {
-                toggle_buttons();
-            }
-            if (pen.changed) {
-                int px = 0, py = 0;
-                if (pen.down) {
-                    pen_at(pen.x, pen.y, 1, &px, &py);
-                }
-                pen_set(pen.down, px, py);
-            }
-            keys_taps |= touch_taps();
+            finger(e->type == SDL_FINGERDOWN ? TOUCH_DOWN : e->type == SDL_FINGERUP ? TOUCH_UP : TOUCH_MOVE,
+                   (int64_t) e->tfinger.fingerId, x, y);
             break;
         }
         case SDL_CONTROLLERDEVICEADDED:
@@ -783,6 +828,10 @@ static void on_frame(uint32_t frame)
     while (SDL_PollEvent(&e)) {
         handle(&e);
     }
+    touch_script_play(frame);
+    if (touch_held(frame)) {
+        opt.full_touch = 0; /* the mark was held: the buttons are shown to be arranged */
+    }
 
     /* the input for this frame: what is held, and presses (and touches) that began and ended
        since the last frame, held for two frames so the game's reader sees them */
@@ -880,6 +929,8 @@ int main(int argc, char **argv)
             opt.linear = 1;
         } else if (strcmp(a, "--touch") == 0) {
             opt.overlay = 1;
+        } else if (strcmp(a, "--touch-script") == 0 && more) {
+            touch_script = fopen(argv[++i], "r");
         } else if (strcmp(a, "--no-above") == 0) {
             opt.no_above = 1;
         } else if (strcmp(a, "--hash") == 0 && more) {
