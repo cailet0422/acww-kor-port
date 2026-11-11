@@ -79,8 +79,10 @@ python3 port/tests/test_frames.py 경로/한국판.nds build
 | `port/src/front_sdl.c` | SDL2 화면 코드(디컴프의 `runtime/play.c`를 SDL2로 옮김) |
 | `port/src/touch.c` | 터치 버튼과 화면 배치 |
 | `port/src/tall3d.c`, `gpu3d_main.c`, `gpu3d_upper.c` | 이어진 화면: 디컴프의 3D 엔진을 두 벌로(docs/tall-view.ko.md) |
+| `port/src/sound_sdl.c` | 소리: 디컴프의 `sound.c`에 SDL 오디오 장치를 붙임 |
+| `port/src/game_hooks.c`, `run_port.c` | 게임 코드에 거는 훅: 화면 위쪽 그리기, 도루묵씨 |
 | `port/src/rom_prep.c` | ROM 확인과 모듈 분리 |
 | `port/src/native_os_portable.c` | 디컴프의 x86 전용 호스트 코드를 대신하는 코드 |
 | `port/compat/` | 디컴프 소스에 강제로 포함하는 헤더. Android C 라이브러리, 64비트 환경 대응 |
 | `port/tests/` | ROM 분리를 디컴프와 비교(ROM 불필요), 프레임을 디컴프와 비교(본인 ROM 필요) |
-| `android/` | Gradle 프로젝트: `LaunchActivity`(ROM 요청), `MainActivity`(SDL) |
+| `android/` | Gradle 프로젝트: `LaunchActivity`(ROM 요청), `MainActivity`(SDL), `SettingsActivity`(설정) |

@@ -250,15 +250,17 @@ Layout layout_compute(int w, int h, int touch, int full_touch)
 /* Held this long (frames, about 0.6 s), the mark opens the arranging. */
 #define HOLD_FRAMES 36
 
-enum { BAR_SMALLER, BAR_LARGER, BAR_RESET, BAR_SETTINGS, BAR_DONE, BAR_COUNT };
+enum { BAR_SMALLER, BAR_LARGER, BAR_RESET, BAR_DONE, BAR_COUNT };
 
-/* whether the bar has the control that opens the settings (where there is such a screen) */
-static int bar_settings;
+/* Whether there is a settings screen for the mark to open (Android). Without one, a tap on the
+ * mark turns the buttons off and on and a hold opens the arranging. */
+static int settings_screen;
 
-void touch_settings_control(int on)
+void touch_settings_screen(int on)
 {
-    bar_settings = on;
+    settings_screen = on;
 }
+
 
 static struct {
     int on;
@@ -276,25 +278,29 @@ static struct {
 static void bar_rects(const Layout *l, SDL_Rect r[BAR_COUNT])
 {
     double unit = (l->w < l->h ? l->w : l->h) * 0.13, gap = unit * 0.25;
-    double widths[BAR_COUNT] = {unit, unit, unit * 2.2, bar_settings ? unit : 0, unit};
+    double widths[BAR_COUNT] = {unit, unit, unit * 2.2, unit};
     double total = gap * (BAR_COUNT - 1), x;
     for (int i = 0; i < BAR_COUNT; i++) {
         total += widths[i];
-    }
-    if (!bar_settings) {
-        total -= gap;
     }
     x = (l->w - total) / 2;
     double y = l->top.y + l->top.h * 0.25;
     for (int i = 0; i < BAR_COUNT; i++) {
         r[i] = rect(x, y, widths[i], unit);
-        x += widths[i] + (widths[i] > 0 ? gap : 0);
+        x += widths[i] + gap;
     }
 }
 
 static int on_rect(const SDL_Rect *r, int x, int y)
 {
     return x >= r->x && x < r->x + r->w && y >= r->y && y < r->y + r->h;
+}
+
+void touch_arrange_open(void)
+{
+    arrange.on = 1;
+    arrange.selected = -1;
+    arrange.dragging = 0;
 }
 
 int touch_arranging(void)
@@ -313,7 +319,7 @@ int touch_arrange_close(void)
 
 int touch_held(uint32_t frame)
 {
-    if (arrange.mark_down && !arrange.mark_fired && frame - arrange.mark_frame >= HOLD_FRAMES) {
+    if (!settings_screen && arrange.mark_down && !arrange.mark_fired && frame - arrange.mark_frame >= HOLD_FRAMES) {
         arrange.mark_fired = 1;
         arrange.on = 1;
         arrange.selected = -1;
@@ -337,10 +343,6 @@ static void arrange_finger(const Layout *l, TouchAction action, int64_t id, int 
             if (i == BAR_DONE) {
                 touch_arrange_close();
                 pen->arranged = 1;
-            } else if (i == BAR_SETTINGS) {
-                touch_arrange_close();
-                pen->arranged = 1;
-                pen->settings = 1;
             } else if (i == BAR_RESET) {
                 for (int k = 0; k < ITEM_COUNT; k++) {
                     set[k] = (Custom){0, 0, 1};
@@ -432,11 +434,16 @@ static uint32_t keys_at(const Layout *l, int x, int y)
 TouchPen touch_finger(const Layout *l, TouchAction action, int64_t id, int x, int y, uint32_t frame)
 {
     TouchPen pen = {0, 0, x, y, 0, 0, 0};
-    /* the mark: a tap turns the buttons off or on, a hold opens the arranging (touch_held) */
+    /* the mark: it opens the settings screen where there is one; else a tap turns the buttons
+       off or on and a hold opens the arranging (touch_held) */
     if (arrange.mark_down && arrange.mark_finger == id) {
         if (action == TOUCH_UP) {
             arrange.mark_down = 0;
-            pen.toggle = !arrange.mark_fired;
+            if (settings_screen) {
+                pen.settings = 1;
+            } else {
+                pen.toggle = !arrange.mark_fired;
+            }
         }
         return pen;
     }
@@ -616,9 +623,6 @@ static void draw_arranging(SDL_Renderer *r, const Layout *l)
     bar_rects(l, bar);
     SDL_Color white = {255, 255, 255, 255};
     for (int i = 0; i < BAR_COUNT; i++) {
-        if (bar[i].w <= 0) {
-            continue;
-        }
         int dim = (i == BAR_SMALLER || i == BAR_LARGER) && arrange.selected < 0;
         SDL_SetRenderDrawColor(r, 20, 20, 20, 200);
         SDL_RenderFillRect(r, &bar[i]);
@@ -630,13 +634,6 @@ static void draw_arranging(SDL_Renderer *r, const Layout *l)
             thick_line(r, cx - u * 0.28, cy, cx + u * 0.28, cy, u * 0.1, white);
             if (i == BAR_LARGER) {
                 thick_line(r, cx, cy - u * 0.28, cx, cy + u * 0.28, u * 0.1, white);
-            }
-        } else if (i == BAR_SETTINGS) {
-            /* three sliders */
-            for (int k = -1; k <= 1; k++) {
-                double y = cy + k * u * 0.22, knob = cx + (k == 0 ? 1 : -1) * u * 0.12;
-                thick_line(r, cx - u * 0.3, y, cx + u * 0.3, y, u * 0.05, white);
-                fill_circle(r, (int) knob, (int) y, (int) (u * 0.08), white);
             }
         } else if (i == BAR_RESET) {
             draw_text(r, "RESET", cx, cy, bar[i].w * 8 / 10 / 30);

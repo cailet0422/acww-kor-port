@@ -3,10 +3,11 @@
  * instead is the stylus until it lifts (one at a time). In the full-touch mode there are no
  * buttons, only the stylus.
  *
- * The mark with three dots turns the buttons off and on when tapped. Held for a moment, it
- * opens the arranging of the buttons: each can be dragged anywhere, the window over the
- * picture included, and made smaller or larger; what the player arranges is kept for tall
- * and for wide windows apart, as "button." lines of the settings.
+ * The mark with three dots opens the settings screen where there is one (Android), and the
+ * arranging of the buttons is opened from there. Elsewhere a tap on it turns the buttons off
+ * and on, and a hold opens the arranging. Arranging, each button can be dragged anywhere, the
+ * window over the picture included, and made smaller or larger; what the player arranges is
+ * kept for tall and for wide windows apart, as "button." lines of the settings.
  */
 #ifndef ACWW_PORT_TOUCH_H
 #define ACWW_PORT_TOUCH_H
@@ -25,7 +26,7 @@ typedef struct TouchPen {
     int x, y;    /* in window pixels (front_sdl.c maps them onto the lower screen) */
     int toggle;  /* the mark was tapped: buttons off or on */
     int arranged; /* the arranging was closed: the settings are to be saved */
-    int settings; /* the bar's sliders were touched: the settings screen is to be opened */
+    int settings; /* the mark was tapped where there is a settings screen: it is to be opened */
 } TouchPen;
 
 /* A finger landing, moving or lifting at (x, y) in window pixels, in frame `frame`. */
@@ -39,8 +40,10 @@ int touch_held(uint32_t frame);
 int touch_arranging(void);
 int touch_arrange_close(void);
 
-/* Whether the arranging's bar has the sliders that open the settings screen. */
-void touch_settings_control(int on);
+/* Whether there is a settings screen (Android): then a tap on the mark asks for it
+ * (TouchPen.settings), and the arranging is opened from there (touch_arrange_open). */
+void touch_settings_screen(int on);
+void touch_arrange_open(void);
 
 /* the buttons the fingers hold now */
 uint32_t touch_keys(void);

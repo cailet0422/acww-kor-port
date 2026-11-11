@@ -18,9 +18,9 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.4.0).** The game runs in the port, and its frames are the decomp's own bit
+> **Early days (0.5.0).** The game runs in the port, and its frames are the decomp's own bit
 > for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)). It has **not yet
-> been run on a real phone**, and there is no sound yet. See the [roadmap](docs/roadmap.md).
+> been run on a real phone**. See the [roadmap](docs/roadmap.md).
 
 ## What it is
 
@@ -37,6 +37,8 @@ This repository adds what the other platforms need, without changing the decomp 
   pacing and the save file;
 - the **tall view**: the 3D scene continued onto the upper screen, so the two screens show one
   picture ([docs/tall-view.md](docs/tall-view.md));
+- **sound**: the runtime's own mixer heard through an SDL audio device
+  (`port/src/sound_sdl.c`; the decomp's device is Windows-only);
 - the **ROM check and split** done on the device (`port/src/rom_prep.c`, the same split as the
   decomp's `tools/extract.py`, tested against it);
 - small **stand-ins** for the decomp's x86-only host code, so its runtime builds for ARM and
@@ -70,11 +72,14 @@ Linux, `acww-kor --rom path/to/your.nds`. Building yourself: [docs/building.md](
 | START, SELECT | Enter, Shift or Backspace | Start, Back | bottom |
 | touch screen | mouse on the lower screen | | a finger on the lower screen |
 
-On a touch screen the mark with three dots (or Back on Android) turns the buttons off and on:
-without them the game is played with the stylus alone, and the choice is remembered. Hold the
-mark for a moment to arrange the buttons: drag each where you want it, the picture included,
-make the one you touched last smaller or larger with − and +, put all back with RESET, and
-close with the tick. Tall and wide screens keep their own arrangements. Tab held
+On Android the mark with three dots opens the settings (in Korean, or English where the
+system is in English): sound, Mr. Resetti, the full-touch mode (no buttons, the stylus alone),
+the tall view, the arranging of the buttons, the save exported and imported, another ROM.
+Arranging, drag each button where you want it, the picture included, make the one you touched
+last smaller or larger with − and +, put all back with RESET, and close with the tick; tall
+and wide screens keep their own arrangements. Back turns the buttons off and on. (On a touch
+screen elsewhere, a tap on the mark turns the buttons off and on and a hold opens the
+arranging.) Tab held
 runs as fast as the machine can; F12 saves the screens as a PNG next to the save.
 
 Mr. Resetti does not come after a play that ended without a save (`resetti=1` in

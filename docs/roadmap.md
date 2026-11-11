@@ -5,7 +5,7 @@
 What the port does now and the order the rest goes in. The facts about the decomp are from
 `decomp/` at the pinned commit (`docs/runtime.md`, `docs/play.md` and the runtime's sources).
 
-## Where it stands (0.4.0)
+## Where it stands (0.5.0)
 
 | | State |
 |---|---|
@@ -14,7 +14,7 @@ What the port does now and the order the rest goes in. The facts about the decom
 | Linux | x86-64 and 32-bit x86, built by CI |
 | ROM check and split | the same modules as the decomp's `tools/extract.py`, byte for byte (`port/tests/test_rom_prep.py`) |
 | Speed | the interpreter alone ran 2 to 3 times the DS's speed on a server CPU; on phones, to be measured |
-| Sound | none yet |
+| Sound | on: the runtime's mixer through an SDL audio device; heard on no phone yet |
 
 ## What the decomp's runtime assumes
 
@@ -48,7 +48,9 @@ What the port does now and the order the rest goes in. The facts about the decom
      mark with three dots, or Back on Android, turns the buttons on and off, and the choice
      is kept;
    - the buttons where the player wants them: done. Each can be dragged and resized, for
-     tall and for wide screens apart (hold the mark);
+     tall and for wide screens apart;
+   - a settings screen on Android, in Korean by default: done. The mark with three dots
+     opens it;
    - the two screens as one picture: done for the 3D scene ([tall-view.md](tall-view.md));
    - **widening what the game draws above its own screen.** The game leaves out what is off
      the lower screen, so the upper part of the tall view lacks whatever lies wholly above it.
@@ -69,7 +71,11 @@ What the port does now and the order the rest goes in. The facts about the decom
      then the same write made without the game's dialog, at moments when the game could save
      itself (outdoors, no talk, no menu), every minute or so and when the app goes to the
      background. It needs a save of a played town to check that what is written loads.
-3. **Sound.** An SDL audio device for the decomp's mixer (`runtime/sound.h`, `runtime/ds_audio.h`).
+3. **Sound.** Done: the decomp's `runtime/sound.c` used as it is, its device part given an
+   SDL audio queue in place of Windows's waveOut (`port/src/sound_sdl.c`). With sound on the
+   runtime also runs the game's sequencer, and the frames then differ from the decomp's
+   sound-off recordings (the checks are made with sound off). To do: a volume setting, and
+   what a phone that runs slower than the DS should do with the gaps.
 4. **A Vulkan renderer.** The DS's 3D engine drawn by the GPU, so the 3D scene comes out at the
    phone's own resolution, with antialiasing; the 2D layers scaled over it. OpenGL ES stays as
    the fallback. This replaces the software renderer's output, so the frame checks need a

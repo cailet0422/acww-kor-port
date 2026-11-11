@@ -25,7 +25,7 @@ import java.io.OutputStream;
 import java.util.ArrayList;
 import java.util.List;
 
-/** The settings, opened from the game (the sliders in the bar that arranges the buttons).
+/** The settings, opened from the game (the mark with three dots).
  *
  *  The choices are lines of files/settings.txt, which the game reads when it starts and again
  *  when it comes back to the front (port/src/front_sdl.c): only the lines this screen knows
@@ -58,9 +58,17 @@ public class SettingsActivity extends Activity {
         title.setPadding(0, 0, 0, pad / 2);
         column.addView(title);
 
+        column.addView(button(R.string.settings_back, this::finish));
+        column.addView(choice("sound", true, R.string.settings_sound));
         column.addView(choice("resetti", false, R.string.settings_resetti));
         column.addView(choice("full_touch", false, R.string.settings_full_touch));
         column.addView(choice("tall", true, R.string.settings_tall));
+        /* a request the game takes when it is back in front: the arranging opens */
+        column.addView(button(R.string.settings_arrange, () -> {
+            write("full_touch", false);
+            write("arrange", true);
+            finish();
+        }));
 
         TextView saveTitle = new TextView(this);
         saveTitle.setText(R.string.settings_save_title);

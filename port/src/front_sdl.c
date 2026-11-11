@@ -57,6 +57,7 @@ static struct {
     char data[PATH_SIZE], rom[PATH_SIZE], save[PATH_SIZE], modules_dir[PATH_SIZE], manifest[PATH_SIZE];
     const char *rtc, *input;
     int read_only, scale, unpaced, linear, overlay, tall, full_touch;
+    int sound;           /* the game's sound through the audio device */
     int resetti;         /* Mr. Resetti comes after a play without a save, as on a DS */
     int no_above;        /* the game's own choice of what to draw above its screen (--no-above) */
     const char *hash;    /* a file for the frames' hashes, as RUN_HASH (--hash) */
@@ -82,6 +83,7 @@ static void usage(void)
             "  --frames N      save and quit after N frames (for scripted checks)\n"
             "  --fast          no pacing: as fast as this machine runs it (as with Tab held)\n"
             "  --smooth        scale the screens with linear filtering instead of whole pixels\n"
+            "  --no-sound      without sound (\"sound=0\" in DATA/settings.txt keeps it)\n"
             "  --touch         draw the touch buttons even without a touch screen\n"
             "  --resetti, --no-resetti  whether Mr. Resetti comes after a play that ended without a\n"
             "                  save (default: he does not; \"resetti=1\" in DATA/settings.txt keeps it)\n"
@@ -279,6 +281,8 @@ static void settings_path(char *out, size_t size)
 /* The tall view as the settings have it: it takes effect when the game starts (the second 3D
  * engine cannot be started later), so it is kept apart from what this run uses (opt.tall). */
 static int tall_setting = 1;
+/* "arrange=1": the settings screen asks for the arranging of the buttons (settings_apply) */
+static int arrange_asked;
 
 static void settings_load(void)
 {
@@ -296,6 +300,10 @@ static void settings_load(void)
             opt.resetti = v != 0;
         } else if (sscanf(line, "tall=%d", &v) == 1) {
             tall_setting = v != 0;
+        } else if (sscanf(line, "sound=%d", &v) == 1) {
+            opt.sound = v != 0;
+        } else if (sscanf(line, "arrange=%d", &v) == 1) {
+            arrange_asked = v != 0;
         } else {
             touch_settings_line(line);
         }
@@ -312,6 +320,7 @@ static void settings_save(void)
         fprintf(f, "full_touch=%d\n", opt.full_touch);
         fprintf(f, "resetti=%d\n", opt.resetti);
         fprintf(f, "tall=%d\n", tall_setting);
+        fprintf(f, "sound=%d\n", opt.sound);
         touch_settings_write(f);
         fclose(f);
     }
@@ -341,6 +350,13 @@ static void settings_apply(void)
 {
     settings_load();
     game_hooks_resetti(opt.resetti);
+    if (arrange_asked) {
+        /* asked for on the settings screen: the buttons shown, and their arranging open */
+        arrange_asked = 0;
+        opt.full_touch = 0;
+        touch_arrange_open();
+        settings_save(); /* without the request */
+    }
 }
 
 /* The window -------------------------------------------------------------------------------- */
@@ -965,9 +981,10 @@ int main(int argc, char **argv)
 {
     opt.scale = 2;
     opt.tall = 1;
+    opt.sound = 1;
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
-    int full_touch = -1, resetti = -1, two_screens = 0; /* as the settings say, unless the command line does */
+    int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0; /* as the settings say, unless the command line does */
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
         int more = i + 1 < argc;
@@ -979,6 +996,8 @@ int main(int argc, char **argv)
             opt.linear = 1;
         } else if (strcmp(a, "--touch") == 0) {
             opt.overlay = 1;
+        } else if (strcmp(a, "--no-sound") == 0) {
+            no_sound = 1;
         } else if (strcmp(a, "--resetti") == 0) {
             resetti = 1;
         } else if (strcmp(a, "--no-resetti") == 0) {
@@ -1033,10 +1052,11 @@ int main(int argc, char **argv)
     if (!two_screens) {
         opt.tall = tall_setting;
     }
+    if (no_sound) {
+        opt.sound = 0;
+    }
 #ifdef __ANDROID__
-    touch_settings_control(1);
-#else
-    touch_settings_control(SDL_getenv("ACWW_SETTINGS_CONTROL") != NULL); /* to look at the bar */
+    touch_settings_screen(1);
 #endif
     SDL_Log("acww-kor-port %s, %d-bit", PORT_VERSION, (int) (8 * sizeof(void *)));
     snprintf(opt.rom, sizeof(opt.rom), "%s", rom != NULL ? rom : "");
@@ -1073,8 +1093,12 @@ int main(int argc, char **argv)
     set_env("RUN_SAVE", file_exists(opt.save) ? opt.save : "");
     set_env("RUN_RTC", opt.rtc);
     set_env("RUN_INPUT", opt.input);
-    set_env("RUN_AUDIO", "");
+    /* sound: the runtime's sequencer and mixer, heard through sound_sdl.c */
+    set_env("RUN_AUDIO", opt.sound ? "1" : "");
     set_env("RUN_AUDIO_WAV", "");
+    if (opt.sound) {
+        set_env("RUN_SEQUENCER", "1");
+    }
     set_env("RUN_HASH", opt.hash);
     static const char *const cleared[] = {"RUN_PNG",           "RUN_PNG_FRAMES",      "RUN_DUMP3D",   "RUN_NATIVE_RECORD",
                                           "RUN_NATIVE_REPLAY", "RUN_RAM_HASH", "RUN_RAM_DUMP", "RUN_NATIVE_LEARN",

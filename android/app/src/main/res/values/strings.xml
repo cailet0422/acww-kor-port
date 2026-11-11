@@ -1,23 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">acww-kor-port</string>
-    <string name="rom_explain">This app contains no game data. It plays your own dump of the Korean cartridge (ADMK), which it copies into its own storage the first time. Other regions, revisions and patched ROMs are not supported.</string>
-    <string name="rom_pick">Choose ROM file</string>
-    <string name="rom_copying">Copying…</string>
-    <string name="rom_copy_failed">The file could not be copied. Try again.</string>
-    <string name="settings_title">Settings</string>
-    <string name="settings_resetti">Mr. Resetti comes after quitting without saving</string>
-    <string name="settings_full_touch">Full-touch mode (touch buttons hidden)</string>
-    <string name="settings_tall">One tall picture: the 3D scene continued onto the upper screen (takes effect at the next start)</string>
-    <string name="settings_save_title">Save data</string>
-    <string name="settings_save_export">Export the save…</string>
-    <string name="settings_save_import">Import a save…</string>
-    <string name="settings_rom_change">Choose another ROM…</string>
-    <string name="settings_rom_change_ask">The app\'s copy of the ROM will be removed and the app will close. The save is kept.</string>
-    <string name="settings_save_none">There is no save yet.</string>
-    <string name="settings_save_exported">The save was exported.</string>
-    <string name="settings_save_wrong">That file is not a save (a save is 256 KB).</string>
-    <string name="settings_failed">That did not work.</string>
-    <string name="settings_restart">Closing. Start the app again.</string>
-    <string name="settings_note">To move or resize the touch buttons, hold the mark with three dots in the game. An imported save replaces the current one (kept as acww.sav.before-import) and closes the app.</string>
+    <string name="rom_explain">이 앱에는 게임 데이터가 들어 있지 않습니다. 직접 덤프한 한국판 카트리지(ADMK) ROM으로 실행하며, 처음 한 번 앱 저장공간으로 복사합니다. 다른 지역판·리비전이나 패치된 ROM은 지원하지 않습니다.</string>
+    <string name="rom_pick">ROM 파일 선택</string>
+    <string name="rom_copying">복사하는 중…</string>
+    <string name="rom_copy_failed">파일을 복사하지 못했습니다. 다시 시도해 주세요.</string>
+    <string name="settings_title">설정</string>
+    <string name="settings_resetti">저장하지 않고 끄면 도루묵씨 등장</string>
+    <string name="settings_full_touch">풀터치 모드 (터치 버튼 숨김)</string>
+    <string name="settings_sound">소리</string>
+    <string name="settings_arrange">버튼 배치 편집…</string>
+    <string name="settings_back">게임으로 돌아가기</string>
+    <string name="settings_tall">이어진 화면: 3D 장면을 위 화면까지 이어 그리기 (다음 실행부터 적용)</string>
+    <string name="settings_save_title">세이브 데이터</string>
+    <string name="settings_save_export">세이브 내보내기…</string>
+    <string name="settings_save_import">세이브 가져오기…</string>
+    <string name="settings_rom_change">다른 ROM 선택…</string>
+    <string name="settings_rom_change_ask">앱에 복사해 둔 ROM을 지우고 앱을 닫습니다. 세이브는 그대로 남습니다.</string>
+    <string name="settings_save_none">아직 세이브가 없습니다.</string>
+    <string name="settings_save_exported">세이브를 내보냈습니다.</string>
+    <string name="settings_save_wrong">세이브 파일이 아닙니다(세이브는 256KB입니다).</string>
+    <string name="settings_failed">처리하지 못했습니다.</string>
+    <string name="settings_restart">앱을 닫습니다. 다시 실행해 주세요.</string>
+    <string name="settings_note">버튼 배치 편집에서는 버튼을 끌어 옮기고, 마지막으로 만진 버튼을 −와 +로 줄이거나 키웁니다. 세이브를 가져오면 현재 세이브를 대신하고(기존 것은 acww.sav.before-import로 보관) 앱이 닫힙니다.</string>
 </resources>
