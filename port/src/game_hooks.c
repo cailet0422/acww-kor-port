@@ -1,4 +1,5 @@
 #include "game_hooks.h"
+#include "game_keyboard.h"
 
 #include <math.h>
 #include <string.h>
@@ -207,7 +208,12 @@ static void kinds_update(void)
             kinds |= 1ull << GAME_HOOK_KIND(cleared[i].back);
         }
     }
-    game_hook_kinds = kinds;
+    game_hook_kinds = kinds | game_keyboard_kinds();
+}
+
+void game_hooks_changed(void)
+{
+    kinds_update();
 }
 
 ArmHook game_hook_at(uint32_t address, void **user)
@@ -215,6 +221,10 @@ ArmHook game_hook_at(uint32_t address, void **user)
     (void) user;
     if (address == LOAD_UNSAVED_ANSWER && !resetti) {
         return unsaved_answered;
+    }
+    ArmHook keyboard = game_keyboard_hook_at(address);
+    if (keyboard != NULL) {
+        return keyboard;
     }
     if (!draw_above) {
         return NULL;

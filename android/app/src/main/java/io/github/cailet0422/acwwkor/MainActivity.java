@@ -1,8 +1,14 @@
 package io.github.cailet0422.acwwkor;
 
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.Intent;
+import android.graphics.Rect;
+import android.os.Build;
 import android.os.Bundle;
+import android.view.View;
+import android.view.WindowInsets;
+import android.view.inputmethod.InputMethodManager;
 
 import org.libsdl.app.SDLActivity;
 
@@ -45,6 +51,44 @@ public class MainActivity extends SDLActivity {
                     .setPositiveButton(R.string.exit_yes, (d, w) -> SDLActivity.nativeSendQuit())
                     .setNegativeButton(android.R.string.cancel, null)
                     .show();
+        });
+    }
+
+    /** Called by the game (front_sdl.c, typer_covered) from its own thread while the game's
+     *  soft keyboard is up: how many pixels of the game's picture, from its bottom, the phone's
+     *  keyboard covers (0 without one). The game then shows the screen being typed on in the
+     *  part that is left. */
+    public int keyboardCover() {
+        View surface = mSurface;
+        if (surface == null) {
+            return 0;
+        }
+        int[] at = new int[2];
+        surface.getLocationOnScreen(at);
+        Rect seen = new Rect();
+        surface.getWindowVisibleDisplayFrame(seen);
+        int visible = seen.bottom;
+        if (Build.VERSION.SDK_INT >= 30) {
+            WindowInsets insets = surface.getRootWindowInsets();
+            if (insets != null) {
+                int ime = insets.getInsets(WindowInsets.Type.ime()).bottom;
+                if (ime > 0) {
+                    visible = Math.min(visible, surface.getRootView().getHeight() - ime);
+                }
+            }
+        }
+        return Math.max(0, at[1] + surface.getHeight() - visible);
+    }
+
+    /** Called by the game (front_sdl.c, typer_begin) from its own thread: the phone's keyboard
+     *  begins anew, with no text of its own and no syllable half typed (the game's text was
+     *  changed by other means, or has no room for what was typed). */
+    public void restartTextInput() {
+        runOnUiThread(() -> {
+            InputMethodManager manager = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (manager != null && mTextEdit != null) {
+                manager.restartInput(mTextEdit);
+            }
         });
     }
 

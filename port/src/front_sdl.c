@@ -52,6 +52,8 @@
 #include "rom_prep.h"
 #include "scene_file.h"
 #include "scene_tween.h"
+#include "game_keyboard.h"
+#include "typing.h"
 #include "tall3d.h"
 #include "tall3d_engine.h"
 #include "touch.h"
@@ -120,6 +122,10 @@ static void usage(void)
             "  --vulkan, --no-vulkan  the window drawn through Vulkan, the 3D scene at the window's\n"
             "                  own size and multisampled (on where the device can; \"vulkan=0\" in\n"
             "                  DATA/settings.txt keeps it)\n"
+            "  --type-keyboard, --no-type-keyboard  type on the game's soft keyboard with this\n"
+            "                  machine's (on where that is a keyboard on the screen;\n"
+            "                  \"type_keyboard=\" in DATA/settings.txt keeps it)\n"
+            "  --type FRAME:TEXT  for a check: TEXT as if typed at that frame (\\b: backspace)\n"
             "  --fps60, --no-fps60  through Vulkan: scenes made between the game's twenty a\n"
             "                  second, for sixty pictures a second at the game's own\n"
             "                  speed (on; \"fps60=0\" in DATA/settings.txt turns it off)\n"
@@ -532,6 +538,27 @@ static int vulkan_scale_setting = 100;
 static int fast_cores_setting = 1;
 /* sixty frames: scenes made between the game's twenty a second (scene_tween.h); at once */
 static int fps60_setting = 1;
+/* typing on the game's keyboard with the device's own (docs/typing.md): on where the device's
+   keyboard is one on the screen, at once */
+#ifdef __ANDROID__
+static int type_setting = 1;
+#else
+static int type_setting = 0;
+#endif
+/* (the typing itself: see update_layout) */
+static struct {
+    int open;            /* the game's keyboard is up and the device's is asked for text */
+    int phase, frames;   /* 0 nothing, 1 the pen on the key, 2 the pen off it */
+    int tries, took;
+    int away;            /* frames since the game's keyboard was last seen */
+    int anew;            /* the session begins anew before the next key (the player touched the game's screen) */
+    int covered;         /* the pixels of the window's height the device's keyboard covers */
+    uint32_t looked;     /* the frame that was last asked */
+    unsigned long keys, refused, sessions;
+} typer;
+static char *type_script;     /* --type: the text, and the frame it is typed at */
+static uint32_t type_script_frame;
+
 static unsigned long tween_scenes, tween_moved, tween_polygons; /* made, and how much of them moved */
 static unsigned long scene_arrivals; /* the scenes the game has drawn */
 static unsigned long scene_held;     /* frames that showed a scene again for want of the next */
@@ -554,6 +581,8 @@ static void settings_load(void)
         int v;
         if (sscanf(line, "full_touch=%d", &v) == 1) {
             opt.full_touch = v != 0;
+        } else if (sscanf(line, "type_keyboard=%d", &v) == 1) {
+            type_setting = v != 0;
         } else if (sscanf(line, "resetti=%d", &v) == 1) {
             opt.resetti = v != 0;
         } else if (sscanf(line, "autosave=%d", &v) == 1) {
@@ -898,6 +927,8 @@ static void status_write(void)
     } else if (presenter != NULL) {
         fprintf(f, "vulkan: %u frames, %u new surfaces, %u failures%s%s\n", vulkan_frames, vulkan_renewals, vulkan_renew_failures,
                 vulkan_last_error[0] ? ", last: " : "", vulkan_last_error);
+        fprintf(f, "typing: %s, %lu keys on the game's keyboard in %lu sessions, %lu refused\n", type_setting ? "on" : "off",
+                typer.keys, typer.sessions, typer.refused);
         fprintf(f, "sixty frames: %s, %lu scenes made between, %lu%% of their polygons moved\n", fps60_setting ? "on" : "off",
                 tween_scenes, tween_polygons ? tween_moved * 100 / tween_polygons : 0);
         fprintf(f, "scenes: %lu; frames after the one before: 2: %lu, 3: %lu, 4: %lu, 5: %lu, more: %lu; frames that waited for one: %lu\n",
@@ -930,6 +961,28 @@ static int activity_call(const char *method)
         (*env)->DeleteLocalRef(env, activity);
     }
     return called;
+}
+#endif
+
+#ifdef __ANDROID__
+/* A method of MainActivity's without arguments that gives a number (0 without the method). */
+static int activity_number(const char *method)
+{
+    int number = 0;
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    jobject activity = SDL_AndroidGetActivity();
+    if (env != NULL && activity != NULL) {
+        jclass cls = (*env)->GetObjectClass(env, activity);
+        jmethodID id = (*env)->GetMethodID(env, cls, method, "()I");
+        if (id != NULL) {
+            number = (int) (*env)->CallIntMethod(env, activity, id);
+        } else {
+            (*env)->ExceptionClear(env);
+        }
+        (*env)->DeleteLocalRef(env, cls);
+        (*env)->DeleteLocalRef(env, activity);
+    }
+    return number;
 }
 #endif
 
@@ -972,6 +1025,7 @@ static void settings_apply(void)
 {
     settings_load();
     game_hooks_resetti(opt.resetti);
+    game_keyboard_enable(type_setting);
     arrange_take();
 }
 
@@ -1081,11 +1135,194 @@ static int open_window(void)
     return 0;
 }
 
+/* Typing with the device's own keyboard --------------------------------------------------------
+ *
+ * While one of the game's screens with its soft keyboard is up (game_keyboard.h), the
+ * device's keyboard is asked for text, and what it types is typed on the game's keyboard, a
+ * key at a time: the pen is put on the game's space bar, and the game is given the character
+ * wanted for the key's code (typing.h says which key is next). A key takes two turns of the
+ * game, some eight a second.
+ *
+ * A keyboard on the screen covers the lower part of the window, where the DS's lower screen
+ * is, and that screen is the one being typed on: so while it is covered, the lower screen is
+ * shown in the part of the window that is left, at the top, and the upper screen is out of
+ * sight above it. */
+#ifdef __ANDROID__
+static int activity_call(const char *method);
+static int activity_number(const char *method);
+#endif
+
+/* A session of typing begins: the device's keyboard starts with no text, and nothing in the
+ * game is that text's. */
+static void typer_begin(void)
+{
+    static const TypingGame game = {game_keyboard_gives, game_keyboard_syllable};
+    typing_start(&game);
+    game_keyboard_let_go();
+    typer.phase = typer.frames = typer.tries = typer.anew = 0;
+    typer.sessions++;
+#ifdef __ANDROID__
+    activity_call("restartTextInput"); /* (its text so far, and a syllable being typed, are let go of) */
+#endif
+}
+
+/* How much of the window the device's keyboard covers now. */
+static int typer_covered(int h)
+{
+    const char *test = getenv("PORT_TYPE_COVER"); /* (a check without a phone: the pixels covered) */
+    int covered = 0;
+    if (test != NULL) {
+        covered = atoi(test);
+    }
+#ifdef __ANDROID__
+    covered = activity_number("keyboardCover");
+#endif
+    return covered * 8 > h ? covered : 0; /* (less than an eighth: a bar of the system's, not a keyboard) */
+}
+
+/* Each frame, before the game is given its input: the pen is the typing's while a key is
+ * being typed. */
+static void typer_frame(uint32_t frame, int *down, int *x, int *y)
+{
+    int up = type_setting && game_keyboard_ready();
+    if (up) {
+        typer.away = 0;
+    }
+    if (up && !typer.open) {
+        typer.open = 1;
+        typer_begin();
+        SDL_StartTextInput();
+        SDL_Log("play: frame %u: the game's keyboard is up: typing with the device's", frame);
+    } else if (!up && typer.open && ++typer.away > 45) {
+        typer.open = 0;
+        typer.covered = 0;
+        SDL_StopTextInput();
+        game_keyboard_let_go();
+        keys_held_keyboard = 0;
+        SDL_Log("play: frame %u: the game's keyboard is gone", frame);
+    }
+    if (!typer.open) {
+        return;
+    }
+    if (frame - typer.looked >= 6) {
+        int w, h;
+        output_size(&w, &h);
+        typer.looked = frame;
+        typer.covered = typer_covered(h);
+    }
+    if (type_script != NULL && frame >= type_script_frame) {
+        /* --type: "\b" in the text is the keyboard's backspace */
+        for (char *p = type_script; *p != 0;) {
+            char *b = strstr(p, "\\b");
+            if (b == p) {
+                typing_backspace();
+                p += 2;
+            } else {
+                char keep = b != NULL ? *b : 0;
+                if (b != NULL) {
+                    *b = 0;
+                }
+                typing_text(p);
+                p = b != NULL ? b : p + strlen(p);
+                if (b != NULL) {
+                    *b = keep;
+                }
+            }
+        }
+        type_script = NULL;
+    }
+    if (!up) {
+        return; /* (the game is between two of its screens: nothing is typed meanwhile) */
+    }
+    if (typer.phase == 0) {
+        if (game_keyboard_foreign() || typer.anew || (typing_long() && !typing_pending())) {
+            typer_begin(); /* the game's text was changed by the game's own keys or the pen */
+        }
+        uint32_t key = *down ? 0 : typing_next(); /* (not while the player's own pen is down) */
+        if (key != 0) {
+            game_keyboard_type(key);
+            typer.phase = 1;
+            typer.frames = 0;
+        }
+    }
+    if (typer.phase == 1) {
+        *down = 1;
+        *x = KEYBOARD_TOUCH_X;
+        *y = KEYBOARD_TOUCH_Y;
+        typer.took = game_keyboard_taken();
+        if (typer.took || ++typer.frames >= 12) {
+            if (!typer.took) {
+                game_keyboard_let_go();
+            }
+            typer.phase = 2;
+            typer.frames = 0;
+        }
+    } else if (typer.phase == 2) {
+        *down = 0;
+        /* (the game sees the pen gone only after some frames, and takes no key for a turn
+           after one: with less than four frames here, a touch is not taken as a new one) */
+        if (++typer.frames >= 5) {
+            typer.phase = 0;
+            if (!typer.took) {
+                /* the game did not ask for the key: the first touch after its buttons were
+                   used only turns it to the pen; after that, it is not taking keys now (a
+                   question is up), and what is waiting is given up */
+                if (++typer.tries >= 3) {
+                    typer_begin();
+                }
+            } else if (game_keyboard_refused()) {
+                typer.refused++; /* the text has no room for it: what was typed past it is let go of */
+                typer_begin();
+            } else {
+                typing_took();
+                typer.keys++;
+                typer.tries = 0;
+            }
+        }
+    }
+}
+
+/* A key of a keyboard while typing: 1 when it is the typing's (and not a button of the DS). */
+static int typer_key(const SDL_Keysym *key, int pressed)
+{
+    if (!typer.open) {
+        return 0;
+    }
+    if (key->sym == SDLK_BACKSPACE) {
+        if (pressed) {
+            typing_backspace();
+        }
+        return 1;
+    }
+    if (key->sym == SDLK_RETURN || key->sym == SDLK_KP_ENTER) {
+#ifndef __ANDROID__
+        if (pressed) {
+            typing_text("\n"); /* (Android's keyboards give the line's end as text) */
+        }
+#endif
+        return 1;
+    }
+    /* the keys that give text come as text; the others (the arrows, Escape) are the DS's still */
+    return key->sym >= 0x20 && key->sym < 0x7f;
+}
+
 static void update_layout(void)
 {
     int w, h;
     output_size(&w, &h);
     int touch = opt.overlay || SDL_GetNumTouchDevices() > 0;
+    if (typer.open && typer.covered > 0) {
+        /* the device's keyboard is over the lower part of the window: the lower screen, which
+           is typed on, in the part above it, and the upper screen out of sight above that */
+        layout = layout_compute(w, h, touch, 1);
+        double room = h - typer.covered, scale = room / layout.bottom.h;
+        scale = scale > 1.0 ? 1.0 : scale;
+        int bw = (int) (layout.bottom.w * scale), bh = (int) (layout.bottom.h * scale);
+        int bx = (w - bw) / 2;
+        layout.bottom = (SDL_Rect){bx, 0, bw, bh}; /* where the upper screen is otherwise: at the window's top */
+        layout.top = (SDL_Rect){bx, -bh, bw, bh};
+        return;
+    }
     layout = layout_compute(w, h, touch, opt.full_touch);
 }
 
@@ -1519,6 +1756,12 @@ static void mouse_to_pixels(int *x, int *y)
 
 static void pen_set(int down, int x, int y)
 {
+    if (down && !pen_down && typer.open) {
+        typer.anew = 1; /* the player's pen on the game's screen: its text may be changed by it */
+        if (!SDL_IsScreenKeyboardShown(window) && y < 88) {
+            SDL_StartTextInput(); /* the device's keyboard was put away: a touch on the text brings it back */
+        }
+    }
     if (down && !pen_down) {
         pen_tap = 1;
         pen_tap_x = x;
@@ -1732,7 +1975,15 @@ static void handle(const SDL_Event *e)
                 SDL_UnlockMutex(vk_lock);
             }
             break;
+        case SDL_TEXTINPUT:
+            if (typer.open) {
+                typing_text(e->text.text);
+            }
+            break;
         case SDL_KEYDOWN:
+            if (typer_key(&e->key.keysym, 1)) {
+                break;
+            }
             if (e->key.keysym.sym == SDLK_TAB) {
                 fast_keyboard = 1;
             } else if (e->key.keysym.sym == SDLK_AC_BACK && !e->key.repeat) {
@@ -1751,6 +2002,9 @@ static void handle(const SDL_Event *e)
             }
             break;
         case SDL_KEYUP:
+            if (typer_key(&e->key.keysym, 0)) {
+                break;
+            }
             if (e->key.keysym.sym == SDLK_TAB) {
                 fast_keyboard = 0;
             } else {
@@ -2194,6 +2448,7 @@ static void on_frame(uint32_t frame)
         port_hooks_install();
         game_hooks_draw_above(opt.tall && !opt.no_above);
         game_hooks_resetti(opt.resetti);
+        game_keyboard_enable(type_setting);
         arrange_take(); /* asked for just before the app was closed */
         frame_first = 0;
     }
@@ -2221,6 +2476,7 @@ static void on_frame(uint32_t frame)
     uint32_t keys = keys_held_keyboard | keys_held_pad | touch_keys() | taps | taps_last;
     taps_last = taps;
     int down = pen_down, x = pen_x, y = pen_y;
+    typer_frame(frame, &down, &x, &y);
     if (!down && (pen_tap || pen_tap_last)) {
         x = pen_tap ? pen_tap_x : pen_tap_last_x;
         y = pen_tap ? pen_tap_y : pen_tap_last_y;
@@ -2263,6 +2519,10 @@ static void on_frame(uint32_t frame)
                         left, drawn, lines, kept, getenv("PORT_MIX_CHECK") != NULL ? (wrong ? ", SOME OF THEM WRONG" : ", all of them right") : "");
                 unsigned long how[5];
                 scene_between_counts(how);
+                if (typer.keys) {
+                    SDL_Log("play: typing: %lu keys on the game's keyboard in %lu sessions, %lu refused", typer.keys, typer.sessions,
+                            typer.refused);
+                }
                 SDL_Log("play: the game drew %lu scenes in %u frames; frames after the one before: 2: %lu, 3: %lu, 4: %lu, 5: %lu, more: %lu; "
                         "frames that waited for one: %lu",
                         scene_arrivals, scene_outputs, scene_every[2], scene_every[3], scene_every[4], scene_every[5],
@@ -2342,7 +2602,7 @@ int main(int argc, char **argv)
     default_data_dir(opt.data);
     const char *save = NULL, *rom = NULL;
     const char *audio_wav = NULL;
-    int autosave = -1, load_autosave = 0, vulkan = -1, link = -1, fps60 = -1;
+    int autosave = -1, load_autosave = 0, vulkan = -1, link = -1, fps60 = -1, type_keyboard = -1;
     const char *link_server = NULL, *link_room = NULL, *wifi_dns = NULL;
     int wifi = -1;
     int full_touch = -1, resetti = -1, two_screens = 0, no_sound = 0, resolution = 0; /* as the settings say, unless the command line does */
@@ -2413,6 +2673,15 @@ int main(int argc, char **argv)
         } else if (strcmp(a, "--vulkan") == 0) {
             vulkan = 1;
             vulkan_explicit = 1;
+        } else if (strcmp(a, "--type-keyboard") == 0) {
+            type_keyboard = 1;
+        } else if (strcmp(a, "--no-type-keyboard") == 0) {
+            type_keyboard = 0;
+        } else if (strcmp(a, "--type") == 0 && more) {
+            /* FRAME:TEXT, for a check: the text as if typed on the device's keyboard at that frame */
+            type_script_frame = (uint32_t) strtoul(argv[++i], NULL, 10);
+            type_script = strchr(argv[i], ':') != NULL ? strchr(argv[i], ':') + 1 : NULL;
+            type_keyboard = 1;
         } else if (strcmp(a, "--no-fps60") == 0) {
             fps60 = 0;
         } else if (strcmp(a, "--fps60") == 0) {
@@ -2465,6 +2734,7 @@ int main(int argc, char **argv)
     }
     opt.vulkan = vulkan >= 0 ? vulkan : vulkan_setting;
     fps60_setting = fps60 >= 0 ? fps60 : fps60_setting;
+    type_setting = type_keyboard >= 0 ? type_keyboard : type_setting;
     tween_check = getenv("PORT_TWEEN_CHECK") != NULL;
 
     opt.link = link >= 0 ? link : opt.link;

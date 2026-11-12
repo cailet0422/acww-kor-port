@@ -89,4 +89,6 @@
     <string name="update_failed_key">내려받은 파일의 서명이 설치된 앱과 다릅니다. 설치하지 않았습니다.</string>
     <string name="update_failed_install">업데이트를 설치하지 못했습니다.</string>
     <string name="update_not_installed">업데이트를 설치하지 않았습니다.</string>
+    <string name="settings_type_keyboard">폰 키보드로 입력</string>
+    <string name="settings_type_keyboard_about">이름, 편지, 게시판, 채팅처럼 게임의 키보드가 나오는 화면에서 폰의 키보드로 입력합니다. 입력하는 동안 아래 화면을 위쪽으로 올려 보여 줍니다. 바로 적용됩니다.</string>
 </resources>

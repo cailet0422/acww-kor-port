@@ -54,6 +54,8 @@ jobs:
         run: build/acww-pitch-test
       - name: The scenes made between the game's (sixty frames)
         run: build/acww-tween-test
+      - name: Another keyboard's text as the game keyboard's keys
+        run: build/acww-typing-test
       - name: Starts and refuses a missing ROM
         run: |
           set +e

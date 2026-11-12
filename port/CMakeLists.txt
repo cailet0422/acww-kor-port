@@ -198,6 +198,9 @@ if(NOT ANDROID)
     target_compile_options(acww-wifi-test PRIVATE -std=c11 -Wall -Wextra)
     target_compile_definitions(acww-wifi-test PRIVATE _DEFAULT_SOURCE _GNU_SOURCE)
     target_link_libraries(acww-wifi-test PRIVATE Threads::Threads)
+    # another keyboard's text as the game keyboard's keys (port/tests/typing_test.c)
+    add_executable(acww-typing-test tests/typing_test.c src/typing.c)
+    target_compile_options(acww-typing-test PRIVATE -std=c11 -Wall -Wextra)
     # the scenes made between the game's, on made-up scenes (port/tests/tween_test.c)
     add_executable(acww-tween-test tests/tween_test.c src/scene_tween.c src/scene_file.c)
     target_compile_options(acww-tween-test PRIVATE -std=c11 -Wall -Wextra)
@@ -254,7 +257,7 @@ endif()
 
 # run.c is built through run_port.c, which adds the port's hooks into the game's code behind
 # the run's own (src/game_hooks.h)
-set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/scene_file.c src/scene_tween.c src/vk_scene.c
+set(FRONT_SOURCES src/front_sdl.c src/touch.c src/game_hooks.c src/game_keyboard.c src/typing.c src/autosave.c src/scene_file.c src/scene_tween.c src/vk_scene.c
     src/vk_present.c src/netlink.c src/relay.c src/wifi_port.c src/run_port.c src/sound_sdl.c src/ds_audio_port.c
     src/wm_port.c src/arm7_port.c src/cores.c)
 set_source_files_properties(src/run_port.c src/sound_sdl.c src/ds_audio_port.c src/wm_port.c src/arm7_port.c
@@ -273,7 +276,7 @@ else()
 endif()
 set_source_files_properties(${FRONT_SOURCES} PROPERTIES COMPILE_DEFINITIONS RUN_FRONT_END)
 # (they reach the DS's memory through memory_host too: the same memory.h in front of them)
-set_source_files_properties(src/front_sdl.c src/touch.c src/game_hooks.c src/autosave.c src/wifi_port.c PROPERTIES COMPILE_OPTIONS
+set_source_files_properties(src/front_sdl.c src/touch.c src/game_hooks.c src/game_keyboard.c src/autosave.c src/wifi_port.c PROPERTIES COMPILE_OPTIONS
     "-std=c11;-Wall;-Wextra;${RUNTIME_INCLUDES}")
 target_compile_definitions(${FRONT} PRIVATE _DEFAULT_SOURCE PORT_VERSION="${PORT_VERSION}")
 target_link_libraries(${FRONT} PRIVATE acww_rom acww_runtime ${SDL_TARGET} m)

@@ -25,6 +25,9 @@ ArmHook game_hook_at(uint32_t address, void **user);
 extern uint64_t game_hook_kinds;
 #define GAME_HOOK_KIND(address) (((address) >> 1) & 63u)
 
+/* For the hooks kept in other files (game_keyboard.c): what they hook has changed. */
+void game_hooks_changed(void);
+
 /* Whether objects above the lower screen are drawn (the tall view's upper part shows them). */
 void game_hooks_draw_above(int on);
 
