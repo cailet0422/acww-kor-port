@@ -90,7 +90,7 @@ jobs:
           tools=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
           # (what a signer's line begins with differs between versions of the tool)
           "$tools/apksigner" verify --print-certs "$apk" | tee certificates.txt
-          is=$(sed -n 's/^Signer.* certificate SHA-256 digest: //p' certificates.txt | sort -u)
+          is=$(sed -n 's/^.*Signer.*certificate SHA-256 digest: //p' certificates.txt | sort -u)
           want=$(tr -d ' \n' < android/release-key.sha256)
           if [ "$is" != "$want" ]; then
             echo "::error::signed with $is, and the project's key is $want: this APK would not install as an update"
