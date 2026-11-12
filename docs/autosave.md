@@ -24,6 +24,10 @@ frames stay the decomp's.
   button's process checks (`start_menu.c`: no event under way, the field taking input, not a
   new player's first day, on which the game says it cannot save yet), in a town of the
   player's own and outside a session with other systems.
+- **By hand.** The mark with the disk at the top of the window (F5) takes the same save at
+  once, at the same moments only; otherwise it says what stands in the way (no town of the
+  player's own being played, a first day, the game's own saving, a menu or a change of
+  scene, a conversation or an event).
 - **The game saved.** Then its save is the newer one, and the autosave is taken away.
 - **The next start.** If there is an autosave, the player is asked which to go on from
   (Android), or `--load-autosave` says so. Going on from it makes it the save; the save it

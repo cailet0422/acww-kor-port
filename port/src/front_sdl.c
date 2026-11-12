@@ -352,35 +352,38 @@ static void at_exit(void)
 
 static uint32_t autosave_quiet_frames, autosave_frame;
 static int autosave_taken;
+static unsigned long saves_asked; /* by the player (save_now), and what the last one came to */
+static int saves_said = -1;
 
 static void autosave_path(char *out, size_t size)
 {
     snprintf(out, size, "%s.auto", opt.save);
 }
 
-static void autosave_take(const char *why)
+static int autosave_take(const char *why)
 {
     static uint8_t card[AUTOSAVE_CARD_SIZE];
     char path[PATH_SIZE + 16], tmp[PATH_SIZE + 24];
     uint64_t writes;
     const uint8_t *image = arm7_backup(&writes);
     if (image == NULL || ARM7_BACKUP_SIZE != AUTOSAVE_CARD_SIZE) {
-        return;
+        return 0;
     }
     memcpy(card, image, AUTOSAVE_CARD_SIZE);
     if (autosave_snapshot(card) != 0) {
-        return;
+        return 0;
     }
     autosave_path(path, sizeof(path));
     snprintf(tmp, sizeof(tmp), "%s.tmp", path);
     FILE *f = fopen(tmp, "wb");
     if (f == NULL || fwrite(card, 1, AUTOSAVE_CARD_SIZE, f) != AUTOSAVE_CARD_SIZE || fclose(f) != 0 || rename(tmp, path) != 0) {
         SDL_Log("play: cannot write %s", path);
-        return;
+        return 0;
     }
     autosave_frame = frame_now;
     autosave_taken = 1;
     SDL_Log("play: frame %u: autosave %s (%s)", frame_now, path, why);
+    return 1;
 }
 
 /* Once a frame. */
@@ -408,6 +411,31 @@ static void autosave_leaving(void)
     if (opt.autosave && !opt.read_only && autosave_quiet_frames >= AUTOSAVE_QUIET) {
         autosave_take("the app went to the background");
     }
+}
+
+/* The player asks for a save now (the mark at the window's top, or F5): the town as it is,
+ * written as the autosave is, if this is a moment the game would let the player save in; if
+ * not, the player is told what stands in the way. The numbers are MainActivity.saveSaid's. */
+enum { SAVE_SAID_DONE = 0, SAVE_SAID_FAILED = 100, SAVE_SAID_READ_ONLY = 101 };
+
+#ifdef __ANDROID__
+static void activity_tell(const char *method, int number);
+#endif
+
+static void save_now(void)
+{
+    const char *why = "";
+    int said = opt.read_only ? SAVE_SAID_READ_ONLY : autosave_reason(&why);
+    if (said == AUTOSAVE_CAN) {
+        said = autosave_take("the player asked") ? SAVE_SAID_DONE : SAVE_SAID_FAILED;
+    } else {
+        SDL_Log("play: frame %u: no save now: %s", frame_now, said == SAVE_SAID_READ_ONLY ? "nothing is written (--read-only)" : why);
+    }
+    saves_asked++;
+    saves_said = said;
+#ifdef __ANDROID__
+    activity_tell("saveSaid", said);
+#endif
 }
 
 /* The game wrote its own save: that is the newer one. */
@@ -569,10 +597,17 @@ static char cores_note[96];
 /* "arrange=1": the settings screen asks for the arranging of the buttons (settings_apply) */
 static int arrange_asked;
 
+/* a gamepad's buttons (see pad_keys) */
+static int pad_settings_line(const char *line);
+static void pad_map_defaults(void);
+static int pad_hide_setting = 1; /* the buttons on the screen are not shown while a gamepad is played with */
+static int pad_used;             /* a gamepad's button has been pressed: one is being played with */
+
 static void settings_load(void)
 {
     char path[PATH_SIZE + 16], line[128];
     settings_path(path, sizeof(path));
+    pad_map_defaults(); /* (a line that is gone leaves its button as it is without one) */
     FILE *f = fopen(path, "r");
     if (f == NULL) {
         return;
@@ -581,6 +616,10 @@ static void settings_load(void)
         int v;
         if (sscanf(line, "full_touch=%d", &v) == 1) {
             opt.full_touch = v != 0;
+        } else if (pad_settings_line(line)) {
+            /* (a gamepad's buttons) */
+        } else if (sscanf(line, "pad_hide=%d", &v) == 1) {
+            pad_hide_setting = v != 0;
         } else if (sscanf(line, "type_keyboard=%d", &v) == 1) {
             type_setting = v != 0;
         } else if (sscanf(line, "resetti=%d", &v) == 1) {
@@ -927,6 +966,15 @@ static void status_write(void)
     } else if (presenter != NULL) {
         fprintf(f, "vulkan: %u frames, %u new surfaces, %u failures%s%s\n", vulkan_frames, vulkan_renewals, vulkan_renew_failures,
                 vulkan_last_error[0] ? ", last: " : "", vulkan_last_error);
+        for (int i = 0; i < 4; i++) {
+            if (pads[i] != NULL) {
+                fprintf(f, "gamepad: %s%s\n", SDL_GameControllerName(pads[i]) != NULL ? SDL_GameControllerName(pads[i]) : "(no name)",
+                        pad_used ? ", played with" : "");
+            }
+        }
+        if (saves_asked) {
+            fprintf(f, "saves asked for: %lu, the last: %d\n", saves_asked, saves_said);
+        }
         fprintf(f, "typing: %s, %lu keys on the game's keyboard in %lu sessions, %lu refused\n", type_setting ? "on" : "off",
                 typer.keys, typer.sessions, typer.refused);
         fprintf(f, "sixty frames: %s, %lu scenes made between, %lu%% of their polygons moved\n", fps60_setting ? "on" : "off",
@@ -965,6 +1013,24 @@ static int activity_call(const char *method)
 #endif
 
 #ifdef __ANDROID__
+/* A method of MainActivity's that takes a number. */
+static void activity_tell(const char *method, int number)
+{
+    JNIEnv *env = SDL_AndroidGetJNIEnv();
+    jobject activity = SDL_AndroidGetActivity();
+    if (env != NULL && activity != NULL) {
+        jclass cls = (*env)->GetObjectClass(env, activity);
+        jmethodID id = (*env)->GetMethodID(env, cls, method, "(I)V");
+        if (id != NULL) {
+            (*env)->CallVoidMethod(env, activity, id, (jint) number);
+        } else {
+            (*env)->ExceptionClear(env);
+        }
+        (*env)->DeleteLocalRef(env, cls);
+        (*env)->DeleteLocalRef(env, activity);
+    }
+}
+
 /* A method of MainActivity's without arguments that gives a number (0 without the method). */
 static int activity_number(const char *method)
 {
@@ -1315,6 +1381,7 @@ static void update_layout(void)
         /* the device's keyboard is over the lower part of the window: the lower screen, which
            is typed on, in the part above it, and the upper screen out of sight above that */
         layout = layout_compute(w, h, touch, 1);
+        layout.save = (SDL_Rect){0, 0, 0, 0}; /* (the lower screen is at the top now) */
         double room = h - typer.covered, scale = room / layout.bottom.h;
         scale = scale > 1.0 ? 1.0 : scale;
         int bw = (int) (layout.bottom.w * scale), bh = (int) (layout.bottom.h * scale);
@@ -1323,7 +1390,8 @@ static void update_layout(void)
         layout.top = (SDL_Rect){bx, -bh, bw, bh};
         return;
     }
-    layout = layout_compute(w, h, touch, opt.full_touch);
+    /* (played with a gamepad, the buttons on the screen are in the way: the pen alone then) */
+    layout = layout_compute(w, h, touch, opt.full_touch || (pad_hide_setting && pad_used));
 }
 
 /* The picture enlarged for the window. A phone's screen is rarely a whole multiple of the
@@ -1793,6 +1861,9 @@ static void finger(TouchAction action, int64_t id, int x, int y)
     if (pen.settings) {
         open_settings();
     }
+    if (pen.save) {
+        save_now();
+    }
     if (pen.changed) {
         int px = 0, py = 0;
         if (pen.down) {
@@ -1868,42 +1939,183 @@ static uint32_t key_of(SDL_Keycode k)
 
 /* Game controllers: the DS's face buttons by position (SDL names them as on an Xbox pad, so
  * the right one is B and the bottom one A), the d-pad and the left stick as the +Control Pad. */
+/* Gamepads -------------------------------------------------------------------------------------
+ *
+ * Which of a gamepad's buttons is which of the DS's: "pad.NAME=BUTTON[,BUTTON...]" lines of
+ * the settings, NAME one of the DS's buttons (a b x y l r start select up down left right)
+ * and BUTTON one of a gamepad's by SDL's names for them, which go by where a button is and
+ * not by what is printed on it (a: the lower of the four, b: the right one, x: the left one,
+ * y: the upper one; l1 r1 the shoulders, l2 r2 the triggers, l3 r3 the sticks pressed; start,
+ * select, guide; up down left right the pad's own). Without a line, a DS button is the
+ * gamepad's in the same place (the DS's A is on the right, as a gamepad's b), with the
+ * triggers as L and R too. The left stick is the +Control Pad besides, always. */
+enum {
+    PAD_A, PAD_B, PAD_X, PAD_Y, PAD_L1, PAD_R1, PAD_L2, PAD_R2, PAD_L3, PAD_R3, PAD_START, PAD_SELECT, PAD_GUIDE,
+    PAD_UP, PAD_DOWN, PAD_LEFT, PAD_RIGHT, PAD_SOURCES
+};
+static const char *const pad_source_names[PAD_SOURCES] = {"a", "b", "x", "y", "l1", "r1", "l2", "r2", "l3", "r3", "start", "select", "guide",
+                                                          "up", "down", "left", "right"};
+static const struct {
+    const char *name;
+    uint32_t key;
+    const char *sources; /* without a line of the settings */
+} pad_ds[] = {
+    {"a", DS_KEY_A, "b"},         {"b", DS_KEY_B, "a"},           {"x", DS_KEY_X, "y"},        {"y", DS_KEY_Y, "x"},
+    {"l", DS_KEY_L, "l1,l2"},     {"r", DS_KEY_R, "r1,r2"},       {"start", DS_KEY_START, "start"},
+    {"select", DS_KEY_SELECT, "select"}, {"up", DS_KEY_UP, "up"}, {"down", DS_KEY_DOWN, "down"},
+    {"left", DS_KEY_LEFT, "left"}, {"right", DS_KEY_RIGHT, "right"},
+};
+#define PAD_DS ((int) (sizeof(pad_ds) / sizeof(pad_ds[0])))
+static uint32_t pad_map[PAD_SOURCES]; /* the DS's buttons each of a gamepad's presses */
+static int pad_map_made;
+
+/* A DS button's gamepad buttons, as a list of their names. */
+static void pad_map_set(int ds, const char *sources)
+{
+    for (int i = 0; i < PAD_SOURCES; i++) {
+        pad_map[i] &= ~pad_ds[ds].key;
+    }
+    while (*sources != 0) {
+        size_t n = strcspn(sources, ",\r\n ");
+        for (int i = 0; i < PAD_SOURCES; i++) {
+            if (strlen(pad_source_names[i]) == n && strncmp(pad_source_names[i], sources, n) == 0) {
+                pad_map[i] |= pad_ds[ds].key;
+            }
+        }
+        sources += n;
+        sources += strspn(sources, ",\r\n ");
+    }
+}
+
+static void pad_map_defaults(void)
+{
+    memset(pad_map, 0, sizeof(pad_map));
+    for (int ds = 0; ds < PAD_DS; ds++) {
+        pad_map_set(ds, pad_ds[ds].sources);
+    }
+    pad_map_made = 1;
+}
+
+/* A line of the settings: 1 if it was one of the gamepad's. */
+static int pad_settings_line(const char *line)
+{
+    if (strncmp(line, "pad.", 4) != 0) {
+        return 0;
+    }
+    if (!pad_map_made) {
+        pad_map_defaults();
+    }
+    for (int ds = 0; ds < PAD_DS; ds++) {
+        size_t n = strlen(pad_ds[ds].name);
+        if (strncmp(line + 4, pad_ds[ds].name, n) == 0 && line[4 + n] == '=') {
+            pad_map_set(ds, line + 4 + n + 1);
+        }
+    }
+    return 1;
+}
+
 static uint32_t pad_keys(void)
 {
-    static const struct {
-        SDL_GameControllerButton button;
-        uint32_t key;
-    } map[] = {
-        {SDL_CONTROLLER_BUTTON_B, DS_KEY_A},           {SDL_CONTROLLER_BUTTON_A, DS_KEY_B},
-        {SDL_CONTROLLER_BUTTON_Y, DS_KEY_X},           {SDL_CONTROLLER_BUTTON_X, DS_KEY_Y},
-        {SDL_CONTROLLER_BUTTON_LEFTSHOULDER, DS_KEY_L}, {SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, DS_KEY_R},
-        {SDL_CONTROLLER_BUTTON_START, DS_KEY_START},   {SDL_CONTROLLER_BUTTON_BACK, DS_KEY_SELECT},
-        {SDL_CONTROLLER_BUTTON_DPAD_UP, DS_KEY_UP},    {SDL_CONTROLLER_BUTTON_DPAD_DOWN, DS_KEY_DOWN},
-        {SDL_CONTROLLER_BUTTON_DPAD_LEFT, DS_KEY_LEFT}, {SDL_CONTROLLER_BUTTON_DPAD_RIGHT, DS_KEY_RIGHT},
+    static const SDL_GameControllerButton buttons[PAD_SOURCES] = {
+        [PAD_A] = SDL_CONTROLLER_BUTTON_A,           [PAD_B] = SDL_CONTROLLER_BUTTON_B,
+        [PAD_X] = SDL_CONTROLLER_BUTTON_X,           [PAD_Y] = SDL_CONTROLLER_BUTTON_Y,
+        [PAD_L1] = SDL_CONTROLLER_BUTTON_LEFTSHOULDER, [PAD_R1] = SDL_CONTROLLER_BUTTON_RIGHTSHOULDER,
+        [PAD_L2] = SDL_CONTROLLER_BUTTON_INVALID,    [PAD_R2] = SDL_CONTROLLER_BUTTON_INVALID,
+        [PAD_L3] = SDL_CONTROLLER_BUTTON_LEFTSTICK,  [PAD_R3] = SDL_CONTROLLER_BUTTON_RIGHTSTICK,
+        [PAD_START] = SDL_CONTROLLER_BUTTON_START,   [PAD_SELECT] = SDL_CONTROLLER_BUTTON_BACK,
+        [PAD_GUIDE] = SDL_CONTROLLER_BUTTON_GUIDE,   [PAD_UP] = SDL_CONTROLLER_BUTTON_DPAD_UP,
+        [PAD_DOWN] = SDL_CONTROLLER_BUTTON_DPAD_DOWN, [PAD_LEFT] = SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+        [PAD_RIGHT] = SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
     };
+    if (!pad_map_made) {
+        pad_map_defaults();
+    }
     uint32_t keys = 0;
+    int any = 0;
     for (int i = 0; i < 4; i++) {
         if (pads[i] == NULL) {
             continue;
         }
-        for (size_t m = 0; m < sizeof(map) / sizeof(map[0]); m++) {
-            if (SDL_GameControllerGetButton(pads[i], map[m].button)) {
-                keys |= map[m].key;
+        any = 1;
+        const int dead = 16000;
+        for (int source = 0; source < PAD_SOURCES; source++) {
+            int pressed = buttons[source] != SDL_CONTROLLER_BUTTON_INVALID && SDL_GameControllerGetButton(pads[i], buttons[source]);
+            if (source == PAD_L2 || source == PAD_R2) {
+                pressed = SDL_GameControllerGetAxis(pads[i], source == PAD_L2 ? SDL_CONTROLLER_AXIS_TRIGGERLEFT
+                                                                             : SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dead;
+            }
+            if (pressed) {
+                keys |= pad_map[source];
+                pad_used = 1;
             }
         }
-        const int dead = 16000;
         int x = SDL_GameControllerGetAxis(pads[i], SDL_CONTROLLER_AXIS_LEFTX);
         int y = SDL_GameControllerGetAxis(pads[i], SDL_CONTROLLER_AXIS_LEFTY);
-        keys |= x < -dead ? DS_KEY_LEFT : x > dead ? DS_KEY_RIGHT : 0;
-        keys |= y < -dead ? DS_KEY_UP : y > dead ? DS_KEY_DOWN : 0;
-        if (SDL_GameControllerGetAxis(pads[i], SDL_CONTROLLER_AXIS_TRIGGERLEFT) > dead) {
-            keys |= DS_KEY_L;
-        }
-        if (SDL_GameControllerGetAxis(pads[i], SDL_CONTROLLER_AXIS_TRIGGERRIGHT) > dead) {
-            keys |= DS_KEY_R;
-        }
+        uint32_t stick = (x < -dead ? DS_KEY_LEFT : x > dead ? DS_KEY_RIGHT : 0) | (y < -dead ? DS_KEY_UP : y > dead ? DS_KEY_DOWN : 0);
+        keys |= stick;
+        pad_used |= stick != 0;
+    }
+    if (!any) {
+        pad_used = 0; /* (the buttons on the screen come back when the gamepad is gone) */
     }
     return keys;
+}
+
+/* --pad-script FILE: a gamepad played from a file, to try the gamepad's handling without one
+ * (SDL's virtual gamepad). Lines of "FRAME BUTTON 1|0", BUTTON by the names above, in the
+ * order of their frames. */
+static FILE *pad_script;
+static char pad_script_line[64];
+static SDL_Joystick *pad_script_stick;
+
+static void pad_script_play(uint32_t frame)
+{
+    while (pad_script != NULL) {
+        unsigned at;
+        int state;
+        char name[16];
+        if (pad_script_stick == NULL) {
+            int index = SDL_JoystickAttachVirtual(SDL_JOYSTICK_TYPE_GAMECONTROLLER, SDL_CONTROLLER_AXIS_MAX, SDL_CONTROLLER_BUTTON_MAX, 0);
+            pad_script_stick = index >= 0 ? SDL_JoystickOpen(index) : NULL;
+            if (pad_script_stick == NULL) {
+                SDL_Log("play: no gamepad for --pad-script (%s)", SDL_GetError());
+                fclose(pad_script);
+                pad_script = NULL;
+                return;
+            }
+        }
+        if (pad_script_line[0] == 0 && fgets(pad_script_line, sizeof(pad_script_line), pad_script) == NULL) {
+            fclose(pad_script);
+            pad_script = NULL;
+            return;
+        }
+        if (sscanf(pad_script_line, "%u %15s %d", &at, name, &state) != 3) {
+            pad_script_line[0] = 0; /* a comment or an empty line */
+            continue;
+        }
+        if (at > frame) {
+            return;
+        }
+        static const int buttons[PAD_SOURCES] = {
+            SDL_CONTROLLER_BUTTON_A, SDL_CONTROLLER_BUTTON_B, SDL_CONTROLLER_BUTTON_X, SDL_CONTROLLER_BUTTON_Y,
+            SDL_CONTROLLER_BUTTON_LEFTSHOULDER, SDL_CONTROLLER_BUTTON_RIGHTSHOULDER, -1, -1, SDL_CONTROLLER_BUTTON_LEFTSTICK,
+            SDL_CONTROLLER_BUTTON_RIGHTSTICK, SDL_CONTROLLER_BUTTON_START, SDL_CONTROLLER_BUTTON_BACK, SDL_CONTROLLER_BUTTON_GUIDE,
+            SDL_CONTROLLER_BUTTON_DPAD_UP, SDL_CONTROLLER_BUTTON_DPAD_DOWN, SDL_CONTROLLER_BUTTON_DPAD_LEFT,
+            SDL_CONTROLLER_BUTTON_DPAD_RIGHT,
+        };
+        for (int i = 0; i < PAD_SOURCES; i++) {
+            if (strcmp(name, pad_source_names[i]) != 0) {
+                continue;
+            }
+            if (i == PAD_L2 || i == PAD_R2) {
+                SDL_JoystickSetVirtualAxis(pad_script_stick, i == PAD_L2 ? SDL_CONTROLLER_AXIS_TRIGGERLEFT : SDL_CONTROLLER_AXIS_TRIGGERRIGHT,
+                                           (Sint16) (state ? 32767 : -32768));
+            } else {
+                SDL_JoystickSetVirtualButton(pad_script_stick, buttons[i], (Uint8) (state != 0));
+            }
+        }
+        pad_script_line[0] = 0;
+    }
 }
 
 static void screenshot(void)
@@ -1995,6 +2207,8 @@ static void handle(const SDL_Event *e)
                 }
             } else if (e->key.keysym.sym == SDLK_F12 && !e->key.repeat) {
                 screenshot();
+            } else if (e->key.keysym.sym == SDLK_F5 && !e->key.repeat) {
+                save_now();
             } else {
                 uint32_t k = key_of(e->key.keysym.sym);
                 keys_held_keyboard |= k;
@@ -2464,6 +2678,7 @@ static void on_frame(uint32_t frame)
         handle(&e);
     }
     touch_script_play(frame);
+    pad_script_play(frame);
     if (touch_held(frame)) {
         opt.full_touch = 0; /* the mark was held: the buttons are shown to be arranged */
     }
@@ -2633,6 +2848,8 @@ int main(int argc, char **argv)
             resetti = 1;
         } else if (strcmp(a, "--no-resetti") == 0) {
             resetti = 0;
+        } else if (strcmp(a, "--pad-script") == 0 && more) {
+            pad_script = fopen(argv[++i], "r");
         } else if (strcmp(a, "--touch-script") == 0 && more) {
             touch_script = fopen(argv[++i], "r");
         } else if (strcmp(a, "--no-above") == 0) {

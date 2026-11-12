@@ -92,37 +92,42 @@ static int own_record(void)
     return number < TOWN_PLAYERS ? (int) number : -1;
 }
 
-int autosave_quiet(const char **why)
+int autosave_reason(const char **why)
 {
     const char *sink;
     why = why != NULL ? why : &sink;
     if (byte_at(STATE_BLOCK + BLOCK_MARKER) != BLOCK_SET_UP || byte_at(STATE_BLOCK + BLOCK_STAMP + 2) != STAMP_WRITTEN) {
         *why = "no town";
-        return 0;
+        return AUTOSAVE_NO_TOWN;
     }
     if (own_record() < 0) {
         *why = "no player of the town";
-        return 0;
+        return AUTOSAVE_VISITING;
     }
     uint32_t kind = word_at(START_KIND);
     if (kind == START_KIND_NEW_PLAYER || kind == START_KIND_NEW_TOWN) {
         *why = "a new player's first day: the game does not save yet";
-        return 0;
+        return AUTOSAVE_FIRST_DAY;
     }
     if (word_at(ACTIVITY_CURRENT) != 0) {
         *why = "an activity (the game's own saving)";
-        return 0;
+        return AUTOSAVE_GAME_SAVING;
     }
     if (byte_at(SCENE_CURRENT) == SCENE_45 || byte_at(FIELD_READY) != 2) {
         *why = "the field takes no input";
-        return 0;
+        return AUTOSAVE_BUSY;
     }
     if (word_at(EVENT_CURRENT) != 0 || (word_at(EVENT_FLAGS) & (1u | 8u)) != 0) {
         *why = "an event";
-        return 0;
+        return AUTOSAVE_EVENT;
     }
     *why = "";
-    return 1;
+    return AUTOSAVE_CAN;
+}
+
+int autosave_quiet(const char **why)
+{
+    return autosave_reason(why) == AUTOSAVE_CAN;
 }
 
 static uint16_t half_at(const uint8_t *p)

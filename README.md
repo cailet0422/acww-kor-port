@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.14.0).** The game runs in the port, on phones too, and its frames are the
+> **Early days (0.15.0).** The game runs in the port, on phones too, and its frames are the
 > decomp's own bit for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)).
 > Sound: [docs/sound.md](docs/sound.md). See the [roadmap](docs/roadmap.md).
 
@@ -85,12 +85,24 @@ Linux, `acww-kor --rom path/to/your.nds`. Building yourself: [docs/building.md](
 | DS | Keyboard | Game controller | Touch screen |
 |---|---|---|---|
 | +Control Pad | arrow keys | d-pad, left stick | pad on the left (below in portrait) |
-| A, B, X, Y | X, Z, S, A | the face buttons by position | buttons on the right |
+| A, B, X, Y | X, Z, S, A | the face buttons by position (can be changed) | buttons on the right |
 | L, R | Q, W | shoulders, triggers | top corners |
 | START, SELECT | Enter, Shift or Backspace | Start, Back | bottom |
 | touch screen | mouse on the lower screen | | a finger on the lower screen |
 
-On Android the mark with three dots opens the settings (in Korean, or English where the
+A game controller works as soon as it is connected, and which of its buttons presses each of
+the DS's can be changed (Android: Settings > Controls > Gamepad, touch a button and press the
+one on the controller; elsewhere lines like `pad.a=x` in `settings.txt`, the controller's
+buttons named by where they are: a below, b right, x left, y above, l1 r1 l2 r2 l3 r3 start
+select guide up down left right). Once a controller's button is pressed, the buttons on the
+screen are not shown (`pad_hide=0` keeps them).
+
+The mark with the disk at the top right of the window (F5 on a keyboard) saves the town at
+once, to the file the autosave uses. At a moment the game would not let you save (the title, a
+first day, a conversation or an event, a menu or a change of scene) nothing is saved and you
+are told why.
+
+On Android the mark with the gear opens the settings (in Korean, or English where the
 system is in English): sound, autosave, Mr. Resetti, the full-touch mode (no buttons, the stylus alone),
 the tall view, the arranging of the buttons, the save exported and imported, another ROM.
 Arranging, drag each button where you want it, the picture included, make the one you touched
