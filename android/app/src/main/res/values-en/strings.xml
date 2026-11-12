@@ -89,4 +89,6 @@
     <string name="update_failed_key">The fetched file is not signed as the installed app is. Nothing was installed.</string>
     <string name="update_failed_install">The update could not be installed.</string>
     <string name="update_not_installed">The update was not installed.</string>
+    <string name="settings_type_keyboard">Type with the phone\'s keyboard</string>
+    <string name="settings_type_keyboard_about">Where the game shows its keyboard (names, letters, the board, chat), the phone\'s keyboard types. The lower screen is shown at the top while it does. Takes effect at once.</string>
 </resources>

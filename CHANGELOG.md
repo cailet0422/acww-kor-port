@@ -5,6 +5,20 @@
 What changed in each version. A release's description, and what the app shows when it offers
 an update, are taken from here ([docs/releases.md](docs/releases.md)).
 
+## 0.14.0
+
+- **Typing with the phone's keyboard**: where the game shows its own keyboard (names,
+  letters, the board, chat), the phone's keyboard types. Hangul goes to the game's keyboard
+  letter by letter and the game puts it together; Latin letters, digits and marks become the
+  game's full-width ones. It can be turned off under Settings > Controls.
+- While typing, the lower screen, which the phone's keyboard covers, is shown at the top of
+  the display. The game's buttons there (Decide and the others) are touched where they are
+  shown.
+- If the phone's keyboard is put away, a touch on the text brings it back.
+
+Tried on the name entry only: the letter, the board and the chat, and a real phone's
+keyboard, have not been tried yet.
+
 ## 0.13.0
 
 The first release.

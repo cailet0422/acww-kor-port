@@ -244,6 +244,8 @@ public class SettingsActivity extends Activity {
     }
 
     private void controlsPage() {
+        content.addView(toggle("type_keyboard", true, R.string.settings_type_keyboard, R.string.settings_type_keyboard_about, false, null));
+        content.addView(divider(8));
         content.addView(toggle("full_touch", false, R.string.settings_full_touch, R.string.settings_full_touch_about, false, null));
         content.addView(divider(8));
         content.addView(heading(R.string.settings_arrange_title));

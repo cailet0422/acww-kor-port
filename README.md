@@ -18,7 +18,7 @@
 > repository or in the builds.
 
 > [!WARNING]
-> **Early days (0.13.0).** The game runs in the port, on phones too, and its frames are the
+> **Early days (0.14.0).** The game runs in the port, on phones too, and its frames are the
 > decomp's own bit for bit on x86 and ARM, 32- and 64-bit ([docs/64bit.md](docs/64bit.md)).
 > Sound: [docs/sound.md](docs/sound.md). See the [roadmap](docs/roadmap.md).
 
@@ -37,6 +37,9 @@ This repository adds what the other platforms need, without changing the decomp 
   pacing and the save file;
 - the **tall view**: the 3D scene continued onto the upper screen, so the two screens show one
   picture ([docs/tall-view.md](docs/tall-view.md));
+- **typing with the phone's keyboard** where the game shows its own (names, letters, the
+  board, chat), Hangul included, with the screen being typed on moved above the keyboard
+  ([docs/typing.md](docs/typing.md));
 - **sixty frames**: the game draws its 3D scene 20 times a second, and cannot be made to do
   more without running faster; scenes made between those give 60 pictures a second at the
   game's own speed (with the Vulkan renderer);
