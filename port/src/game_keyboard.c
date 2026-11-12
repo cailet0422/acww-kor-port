@@ -67,6 +67,29 @@ static uint32_t bytes_number(uint32_t address, uint32_t size)
 #define KEYBOARD_TURN_NUMBER 0xca8109f2u
 #define KEYBOARD_KEY_CODE_NUMBER 0x88b9925du
 
+/* The screens over the keyboard are overlays of their own, at the same addresses as one
+ * another: which one is there is told by the code at a function each has (the one that acts
+ * on a key's code: func_ov126_022a03dc of the name and text entry, func_ov111_0229f730 of
+ * the chat), by the numbers of their first bytes in the Korean release. */
+#define ENTRY_RUN_CODE 0x022a03dcu
+#define ENTRY_RUN_CODE_NUMBER 0xb304c6bbu
+#define CHAT_RUN_CODE 0x0229f730u
+#define CHAT_RUN_CODE_NUMBER 0xc2c6303au
+
+int game_keyboard_screen(void)
+{
+    if (!game_keyboard_ready()) {
+        return KEYBOARD_SCREEN_NONE;
+    }
+    if (bytes_number(ENTRY_RUN_CODE, 24) == ENTRY_RUN_CODE_NUMBER) {
+        return KEYBOARD_SCREEN_ENTRY;
+    }
+    if (bytes_number(CHAT_RUN_CODE, 24) == CHAT_RUN_CODE_NUMBER) {
+        return KEYBOARD_SCREEN_CHAT;
+    }
+    return KEYBOARD_SCREEN_OTHER;
+}
+
 /* Whether the code at the hooked addresses is the keyboard's now (looked at once a frame:
  * other overlays' code at those addresses may come by often). */
 static int is_keyboard(void)
@@ -76,8 +99,8 @@ static int is_keyboard(void)
     if (looked != io_frame()) {
         looked = io_frame();
         if (getenv("PORT_KEYBOARD_DUMP") != NULL) {
-            fprintf(stderr, "keyboard: frame %u: numbers %08x %08x\n", io_frame(), bytes_number(KEYBOARD_TURN, 24),
-                    bytes_number(KEYBOARD_KEY_CODE, 24));
+            fprintf(stderr, "keyboard: frame %u: numbers %08x %08x, screens %08x %08x\n", io_frame(), bytes_number(KEYBOARD_TURN, 24),
+                    bytes_number(KEYBOARD_KEY_CODE, 24), bytes_number(ENTRY_RUN_CODE, 24), bytes_number(CHAT_RUN_CODE, 24));
         }
         is = bytes_number(KEYBOARD_TURN, 24) == KEYBOARD_TURN_NUMBER && bytes_number(KEYBOARD_KEY_CODE, 24) == KEYBOARD_KEY_CODE_NUMBER;
     }

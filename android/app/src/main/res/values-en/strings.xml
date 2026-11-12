@@ -90,7 +90,7 @@
     <string name="update_failed_install">The update could not be installed.</string>
     <string name="update_not_installed">The update was not installed.</string>
     <string name="settings_type_keyboard">Type with the phone\'s keyboard</string>
-    <string name="settings_type_keyboard_about">Where the game shows its keyboard (names, letters, the board, chat), the phone\'s keyboard types. The lower screen is shown at the top while it does. Takes effect at once.</string>
+    <string name="settings_type_keyboard_about">Where the game shows its keyboard (names, letters, the board, chat), the phone\'s keyboard types. The lower screen is shown at the top while it does. Enter ends a name or sends a line of chat. Takes effect at once.</string>
     <string name="save_done">Saved. The next start can go on from here.</string>
     <string name="save_no_town">Cannot save now: only while playing in your own town (not at the title, nor in another town).</string>
     <string name="save_first_day">Cannot save now: on a new player\'s first day the game does not save yet either. After the first day\'s work it can.</string>

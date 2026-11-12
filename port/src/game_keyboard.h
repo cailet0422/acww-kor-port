@@ -38,6 +38,20 @@ void game_keyboard_let_go(void);
 int game_keyboard_refused(void);
 int game_keyboard_foreign(void);
 
+/* Which screen the keyboard is on: the name and text entry (names, catchphrases and the like:
+ * one line, and a Decide button), the chat (one line, and an arrow that sends it), or another
+ * (the letter and the board, whose text has lines). Each of the first two has a button that
+ * ends the typing, at a place of the lower screen. KEYBOARD_NOTHING is a code the keyboard
+ * takes and does nothing about: a key that only shows the game is taking keys, and turns it
+ * to the pen if its buttons were used last. */
+enum { KEYBOARD_SCREEN_NONE, KEYBOARD_SCREEN_ENTRY, KEYBOARD_SCREEN_CHAT, KEYBOARD_SCREEN_OTHER };
+int game_keyboard_screen(void);
+#define KEYBOARD_ENTRY_DECIDE_X 219
+#define KEYBOARD_ENTRY_DECIDE_Y 180
+#define KEYBOARD_CHAT_SEND_X 229
+#define KEYBOARD_CHAT_SEND_Y 58
+#define KEYBOARD_NOTHING 0x101u
+
 /* Whether one of the keyboard's keys gives this character, and whether the keyboard puts
  * this Hangul syllable together (it knows 2355 of them); from the game's tables in memory,
  * read when the keyboard is first seen. */

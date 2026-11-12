@@ -5,6 +5,14 @@
 What changed in each version. A release's description, and what the app shows when it offers
 an update, are taken from here ([docs/releases.md](docs/releases.md)).
 
+## 0.15.1
+
+- **Enter while typing**: with the phone's keyboard, Enter ends a name (or any other
+  one-line text) as the game's Decide button does, and in the chat sends the line. On a
+  letter and on the board it is the end of a line, as before.
+
+Tried on the name entry and in the chat on a computer; not with a phone's keyboard yet.
+
 ## 0.15.0
 
 - **A gamepad's buttons**: under Settings > Controls > Gamepad, which of the gamepad's
