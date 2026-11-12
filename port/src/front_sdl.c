@@ -125,7 +125,7 @@ static void usage(void)
             "  --type-keyboard, --no-type-keyboard  type on the game's soft keyboard with this\n"
             "                  machine's (on where that is a keyboard on the screen;\n"
             "                  \"type_keyboard=\" in DATA/settings.txt keeps it)\n"
-            "  --type FRAME:TEXT  for a check: TEXT as if typed at that frame (\\b: backspace)\n"
+            "  --type FRAME:TEXT  for a check: TEXT as if typed at that frame (\\b: backspace, \\n: Enter)\n"
             "  --fps60, --no-fps60  through Vulkan: scenes made between the game's twenty a\n"
             "                  second, for sixty pictures a second at the game's own\n"
             "                  speed (on; \"fps60=0\" in DATA/settings.txt turns it off)\n"
@@ -581,8 +581,13 @@ static struct {
     int away;            /* frames since the game's keyboard was last seen */
     int anew;            /* the session begins anew before the next key (the player touched the game's screen) */
     int covered;         /* the pixels of the window's height the device's keyboard covers */
+    int confirm;         /* Enter was pressed where the text is one line: the screen's own button is to be touched */
+    int confirm_x, confirm_y;
+    int enter_keys, enter_texts; /* Enter since the last frame: as a key, and as the end of a line in text */
+    char after[256];             /* what was typed after Enter, before the button was touched ("\b": a backspace) */
+    size_t after_n;
     uint32_t looked;     /* the frame that was last asked */
-    unsigned long keys, refused, sessions;
+    unsigned long keys, refused, sessions, confirms;
 } typer;
 static char *type_script;     /* --type: the text, and the frame it is typed at */
 static uint32_t type_script_frame;
@@ -975,8 +980,8 @@ static void status_write(void)
         if (saves_asked) {
             fprintf(f, "saves asked for: %lu, the last: %d\n", saves_asked, saves_said);
         }
-        fprintf(f, "typing: %s, %lu keys on the game's keyboard in %lu sessions, %lu refused\n", type_setting ? "on" : "off",
-                typer.keys, typer.sessions, typer.refused);
+        fprintf(f, "typing: %s, %lu keys on the game's keyboard in %lu sessions, %lu refused, %lu times Enter for the screen's button\n",
+                type_setting ? "on" : "off", typer.keys, typer.sessions, typer.refused, typer.confirms);
         fprintf(f, "sixty frames: %s, %lu scenes made between, %lu%% of their polygons moved\n", fps60_setting ? "on" : "off",
                 tween_scenes, tween_polygons ? tween_moved * 100 / tween_polygons : 0);
         fprintf(f, "scenes: %lu; frames after the one before: 2: %lu, 3: %lu, 4: %lu, 5: %lu, more: %lu; frames that waited for one: %lu\n",
@@ -1225,7 +1230,8 @@ static void typer_begin(void)
     static const TypingGame game = {game_keyboard_gives, game_keyboard_syllable};
     typing_start(&game);
     game_keyboard_let_go();
-    typer.phase = typer.frames = typer.tries = typer.anew = 0;
+    typer.phase = typer.frames = typer.tries = typer.anew = typer.confirm = 0;
+    typer.after_n = 0;
     typer.sessions++;
 #ifdef __ANDROID__
     activity_call("restartTextInput"); /* (its text so far, and a syllable being typed, are let go of) */
@@ -1245,6 +1251,10 @@ static int typer_covered(int h)
 #endif
     return covered * 8 > h ? covered : 0; /* (less than an eighth: a bar of the system's, not a keyboard) */
 }
+
+static void typer_enter(void);
+static void typer_text(const char *text);
+static void typer_backspace(void);
 
 /* Each frame, before the game is given its input: the pen is the typing's while a key is
  * being typed. */
@@ -1267,6 +1277,13 @@ static void typer_frame(uint32_t frame, int *down, int *x, int *y)
         keys_held_keyboard = 0;
         SDL_Log("play: frame %u: the game's keyboard is gone", frame);
     }
+    /* Enter comes as a key from some of the device's keyboards and as the end of a line in
+       text from others, and from those as a key as well (SDL makes one of it): it is one
+       Enter all the same */
+    if (typer.open && typer.enter_keys > typer.enter_texts) {
+        typer_enter();
+    }
+    typer.enter_keys = typer.enter_texts = 0;
     if (!typer.open) {
         return;
     }
@@ -1277,22 +1294,38 @@ static void typer_frame(uint32_t frame, int *down, int *x, int *y)
         typer.covered = typer_covered(h);
     }
     if (type_script != NULL && frame >= type_script_frame) {
-        /* --type: "\b" in the text is the keyboard's backspace */
+        /* --type: "\b" in the text is the keyboard's backspace, "\n" its Enter */
         for (char *p = type_script; *p != 0;) {
-            char *b = strstr(p, "\\b");
-            if (b == p) {
-                typing_backspace();
+            if (p[0] == '\\' && (p[1] == 'b' || p[1] == 'n')) {
+                if (p[1] == 'b') {
+                    typer_backspace();
+                } else {
+                    /* (as the key a keyboard gives, by the way of the keys) */
+                    SDL_Event key = {0};
+                    key.type = SDL_KEYDOWN;
+                    key.key.state = SDL_PRESSED;
+                    key.key.keysym.sym = SDLK_RETURN;
+                    key.key.keysym.scancode = SDL_SCANCODE_RETURN;
+                    SDL_PushEvent(&key);
+                    key.type = SDL_KEYUP;
+                    key.key.state = SDL_RELEASED;
+                    SDL_PushEvent(&key);
+                    type_script = p + 2; /* (the rest after the key has come) */
+                    type_script_frame = frame + 2;
+                    return;
+                }
                 p += 2;
-            } else {
-                char keep = b != NULL ? *b : 0;
-                if (b != NULL) {
-                    *b = 0;
-                }
-                typing_text(p);
-                p = b != NULL ? b : p + strlen(p);
-                if (b != NULL) {
-                    *b = keep;
-                }
+                continue;
+            }
+            char *b = strchr(p + 1, '\\');
+            char keep = b != NULL ? *b : 0;
+            if (b != NULL) {
+                *b = 0;
+            }
+            typer_text(p);
+            p = b != NULL ? b : p + strlen(p);
+            if (b != NULL) {
+                *b = keep;
             }
         }
         type_script = NULL;
@@ -1305,6 +1338,13 @@ static void typer_frame(uint32_t frame, int *down, int *x, int *y)
             typer_begin(); /* the game's text was changed by the game's own keys or the pen */
         }
         uint32_t key = *down ? 0 : typing_next(); /* (not while the player's own pen is down) */
+        if (key == 0 && typer.confirm == 1 && !*down) {
+            /* Enter, and everything typed is in the game: first a key that does nothing, which
+               shows that the game is taking keys now (and turns it to the pen); then the
+               screen's own button (below) */
+            key = KEYBOARD_NOTHING;
+            typer.confirm = 2;
+        }
         if (key != 0) {
             game_keyboard_type(key);
             typer.phase = 1;
@@ -1323,6 +1363,44 @@ static void typer_frame(uint32_t frame, int *down, int *x, int *y)
             typer.phase = 2;
             typer.frames = 0;
         }
+    } else if (typer.phase == 3) {
+        /* the screen's own button (Decide, or the arrow that sends), touched as a finger would */
+        *down = 1;
+        *x = typer.confirm_x;
+        *y = typer.confirm_y;
+        if (++typer.frames >= 5) {
+            typer.phase = 4;
+            typer.frames = 0;
+        }
+    } else if (typer.phase == 4) {
+        *down = 0;
+        if (++typer.frames >= 5) {
+            /* what the screen does next is the game's: the typing begins anew, with what was
+               typed meanwhile (a next line of chat; a name's screen is over) */
+            char held[sizeof(typer.after) + 1];
+            int chat = game_keyboard_screen() == KEYBOARD_SCREEN_CHAT;
+            memcpy(held, typer.after, typer.after_n);
+            held[typer.after_n] = 0;
+            typer.confirms++;
+            typer_begin();
+            for (char *p = held; chat && *p != 0;) {
+                if (*p == '\b') {
+                    typer_backspace();
+                    p++;
+                } else {
+                    char *e = p;
+                    while (*e != 0 && *e != '\b' && *e != '\n') {
+                        e++;
+                    }
+                    e += *e == '\n';
+                    char keep = *e;
+                    *e = 0;
+                    typer_text(p);
+                    *e = keep;
+                    p = e;
+                }
+            }
+        }
     } else if (typer.phase == 2) {
         *down = 0;
         /* (the game sees the pen gone only after some frames, and takes no key for a turn
@@ -1335,15 +1413,109 @@ static void typer_frame(uint32_t frame, int *down, int *x, int *y)
                    question is up), and what is waiting is given up */
                 if (++typer.tries >= 3) {
                     typer_begin();
+                } else if (typer.confirm == 2) {
+                    typer.confirm = 1; /* (the key that does nothing, again) */
                 }
             } else if (game_keyboard_refused()) {
                 typer.refused++; /* the text has no room for it: what was typed past it is let go of */
                 typer_begin();
+            } else if (typer.confirm == 2) {
+                typer.confirm = 3; /* the game is taking keys: its button now */
+                typer.phase = 3;
+                typer.frames = 0;
+                typer.tries = 0;
             } else {
                 typing_took();
                 typer.keys++;
                 typer.tries = 0;
             }
+        }
+    }
+}
+
+/* What is typed after Enter, while the screen's button is yet to be touched, is typed after
+ * it. */
+static void typer_hold(const char *text)
+{
+    size_t n = strlen(text);
+    if (typer.after_n + n <= sizeof(typer.after)) {
+        memcpy(typer.after + typer.after_n, text, n);
+        typer.after_n += n;
+    }
+}
+
+static void typer_backspace(void)
+{
+    if (typer.confirm != 0) {
+        typer_hold("\b");
+    } else {
+        typing_backspace();
+    }
+}
+
+/* Enter on the device's keyboard. Where the text is one line (a name, a line of chat), it is
+ * the screen's own button that ends the typing: Decide, or the arrow that sends the line;
+ * touched once everything typed is in the game. Where the text has lines (a letter, the
+ * board), it is the end of a line. */
+static void typer_enter(void)
+{
+    int screen = game_keyboard_screen();
+    if (typer.confirm != 0) {
+        typer_hold("\n");
+        return;
+    }
+    if (screen == KEYBOARD_SCREEN_ENTRY || screen == KEYBOARD_SCREEN_CHAT) {
+        if (typer.confirm == 0) {
+            typer.confirm = 1;
+            typer.confirm_x = screen == KEYBOARD_SCREEN_ENTRY ? KEYBOARD_ENTRY_DECIDE_X : KEYBOARD_CHAT_SEND_X;
+            typer.confirm_y = screen == KEYBOARD_SCREEN_ENTRY ? KEYBOARD_ENTRY_DECIDE_Y : KEYBOARD_CHAT_SEND_Y;
+        }
+    } else {
+        typing_text("\n");
+    }
+}
+
+/* Text from the device's keyboard. An end of a line in it is Enter (above): where the text is
+ * one line, after the rest of the text. */
+static void typer_text(const char *text)
+{
+    int screen = game_keyboard_screen();
+    int line = screen == KEYBOARD_SCREEN_ENTRY || screen == KEYBOARD_SCREEN_CHAT;
+    char *kept;
+    size_t n = 0;
+    int ends = 0;
+    if (typer.confirm != 0) {
+        for (const char *p = text; *p != 0; p++) {
+            typer.enter_texts += *p == '\n';
+        }
+        typer_hold(text);
+        return;
+    }
+    kept = malloc(strlen(text) + 1);
+    if (kept == NULL) {
+        return;
+    }
+    for (const char *p = text; *p != 0; p++) {
+        if (*p == '\r') {
+            continue;
+        }
+        if (*p == '\n') {
+            ends++;
+            if (line) {
+                continue;
+            }
+        }
+        kept[n++] = *p;
+    }
+    kept[n] = 0;
+    if (n > 0) {
+        typing_text(kept);
+    }
+    free(kept);
+    if (ends > 0) {
+        typer.enter_texts += ends;
+        if (line) {
+            typer_enter();
         }
     }
 }
@@ -1356,16 +1528,14 @@ static int typer_key(const SDL_Keysym *key, int pressed)
     }
     if (key->sym == SDLK_BACKSPACE) {
         if (pressed) {
-            typing_backspace();
+            typer_backspace();
         }
         return 1;
     }
     if (key->sym == SDLK_RETURN || key->sym == SDLK_KP_ENTER) {
-#ifndef __ANDROID__
         if (pressed) {
-            typing_text("\n"); /* (Android's keyboards give the line's end as text) */
+            typer.enter_keys++; /* (looked at in typer_frame: it may be in the text as well) */
         }
-#endif
         return 1;
     }
     /* the keys that give text come as text; the others (the arrows, Escape) are the DS's still */
@@ -2189,7 +2359,7 @@ static void handle(const SDL_Event *e)
             break;
         case SDL_TEXTINPUT:
             if (typer.open) {
-                typing_text(e->text.text);
+                typer_text(e->text.text);
             }
             break;
         case SDL_KEYDOWN:
@@ -2735,8 +2905,8 @@ static void on_frame(uint32_t frame)
                 unsigned long how[5];
                 scene_between_counts(how);
                 if (typer.keys) {
-                    SDL_Log("play: typing: %lu keys on the game's keyboard in %lu sessions, %lu refused", typer.keys, typer.sessions,
-                            typer.refused);
+                    SDL_Log("play: typing: %lu keys on the game's keyboard in %lu sessions, %lu refused, %lu times Enter for the screen's button",
+                            typer.keys, typer.sessions, typer.refused, typer.confirms);
                 }
                 SDL_Log("play: the game drew %lu scenes in %u frames; frames after the one before: 2: %lu, 3: %lu, 4: %lu, 5: %lu, more: %lu; "
                         "frames that waited for one: %lu",

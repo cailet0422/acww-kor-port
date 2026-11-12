@@ -74,6 +74,28 @@ second time from the decomp: twelve letters take twelve keys; a line given at on
 without a key; a game that knows fewer syllables; 20 000 steps of typing, taking back and
 ending syllables by chance, after each of which the game's text is the phone's.
 
+## Enter
+
+Where the text is one line, Enter on the device's keyboard ends the typing as the screen's
+own button does: on a name's (and any other text entry's) screen, Decide; in the chat, the
+arrow that sends the line. On a letter and on the board, where the text has lines, it is the
+end of a line, as before.
+
+Which screen is over the keyboard is told by the code at the function each has for acting on
+a key's code (`func_ov126_022a03dc` of the entry, `func_ov111_0229f730` of the chat): the
+screens are overlays at the same addresses. The button is touched with the pen, as a finger
+would touch it (not by calling what it does), so that the game's own rules hold: Decide does
+nothing while the name is empty, as it does nothing under a finger.
+
+- It is touched only once everything typed before is in the game. Then, first, a key that
+  does nothing is typed (the code 0x101, one the screens ignore): when the game takes it, the
+  game is taking keys and is turned to the pen, and the touch that follows is the button's.
+  If it is not taken three times, Enter is given up.
+- What is typed after Enter and before the touch is typed after it: the next line of a chat.
+  After a name's Decide it is let go of.
+- Android's keyboards give Enter as a key, or as the end of a line in text, which SDL passes
+  on as a key as well: within a frame it is one Enter.
+
 ## The screen being typed on
 
 A keyboard on the screen covers the lower part of the window, where the DS's lower screen
@@ -93,8 +115,11 @@ lower screen, where the text is, brings it back.
   (`--type FRAME:TEXT` gives the text as if typed), Hangul, a space, Latin letters, digits and
   deletions, on whichever page the game's keyboard showed; the text's limit refused and the
   rest let go of; the window's layout with a part covered (`PORT_TYPE_COVER=PIXELS`).
-- Not on this machine: the chat, the board and the letter (they need a town further on than
-  the one there is here). They ask the keyboard the same questions at the same addresses,
-  by the decomp's sources.
+- Also on this machine: a line of chat typed and sent with Enter, and a second one after it;
+  a name ended with Enter; Enter on an empty name, which does nothing (`\n` in `--type` is
+  Enter, as the key a keyboard gives).
+- Not on this machine: the board and the letter (they need a town further on than the one
+  there is here). They ask the keyboard the same questions at the same addresses, by the
+  decomp's sources.
 - Not on a phone: what Android's keyboards send, through SDL, is taken from SDL's source
   (`SDLInputConnection.updateText`), and the keyboard's height from the system's insets.
