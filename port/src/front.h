@@ -53,7 +53,8 @@ typedef struct Layout {
     int pad_x, pad_y, pad_r, pad_over; /* the +Control Pad: its centre and reach */
     Button buttons[LAYOUT_BUTTONS];
     int button_count;
-    SDL_Rect toggle;      /* the small mark that turns the buttons on and off */
+    SDL_Rect toggle;      /* the small mark (a gear) for the settings: it turns the buttons on and off where there are none */
+    SDL_Rect save;        /* the small mark at the window's top that saves the town now */
 } Layout;
 
 /* The picture (both screens, one above the other) as large as the window lets it be: across

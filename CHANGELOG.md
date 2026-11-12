@@ -5,6 +5,20 @@
 What changed in each version. A release's description, and what the app shows when it offers
 an update, are taken from here ([docs/releases.md](docs/releases.md)).
 
+## 0.15.0
+
+- **A gamepad's buttons**: under Settings > Controls > Gamepad, which of the gamepad's
+  buttons presses each of the DS's can be chosen; the gamepads connected are named there.
+  While a gamepad is played with, the buttons on the screen are not shown (this can be
+  turned off).
+- **The buttons on the screen**: A, B, X and Y are further apart. The mark for the settings
+  is a gear, not three dots.
+- **Saving by hand**: the mark with the disk at the top right saves the town at once (as the
+  autosave does: the next start can go on from it). At a moment that cannot be saved in, it
+  says why.
+
+The gamepad and the save mark have not been tried on a phone yet.
+
 ## 0.14.0
 
 - **Typing with the phone's keyboard**: where the game shows its own keyboard (names,

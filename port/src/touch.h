@@ -3,7 +3,9 @@
  * instead is the stylus until it lifts (one at a time). In the full-touch mode there are no
  * buttons, only the stylus.
  *
- * The mark with three dots opens the settings screen where there is one (Android), and the
+ * The mark at the window's top (a disk) saves the town at once (front_sdl.c, save_now).
+ *
+ * The mark with the gear opens the settings screen where there is one (Android), and the
  * arranging of the buttons is opened from there. Elsewhere a tap on it turns the buttons off
  * and on, and a hold opens the arranging. Arranging, each button can be dragged anywhere, the
  * window over the picture included, and made smaller or larger; what the player arranges is
@@ -27,6 +29,7 @@ typedef struct TouchPen {
     int toggle;  /* the mark was tapped: buttons off or on */
     int arranged; /* the arranging was closed: the settings are to be saved */
     int settings; /* the mark was tapped where there is a settings screen: it is to be opened */
+    int save;     /* the mark at the top was tapped: the town is to be saved now */
 } TouchPen;
 
 /* A finger landing, moving or lifting at (x, y) in window pixels, in frame `frame`. */

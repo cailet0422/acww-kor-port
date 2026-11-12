@@ -45,11 +45,11 @@ What the port does now and the order the rest goes in. The facts about the decom
    - portrait first: done. The picture takes the window's whole width, the buttons the room
      below it, or lie over its lower part where there is none (tablets, foldables);
    - a full-touch mode, the game played with the stylus alone and no buttons drawn: done. The
-     mark with three dots (the settings screen on Android) turns the buttons on and off,
+     mark with the gear (the settings screen on Android) turns the buttons on and off,
      and the choice is kept;
    - the buttons where the player wants them: done. Each can be dragged and resized, for
      tall and for wide screens apart;
-   - a settings screen on Android, in Korean by default: done. The mark with three dots
+   - a settings screen on Android, in Korean by default: done. The mark with the gear
      opens it;
    - the two screens as one picture: done for the 3D scene ([tall-view.md](tall-view.md));
    - **widening what the game draws above its own screen.** The game leaves out what is off

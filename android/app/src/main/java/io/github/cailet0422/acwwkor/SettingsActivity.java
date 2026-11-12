@@ -12,6 +12,9 @@ import android.text.Editable;
 import android.text.InputType;
 import android.text.TextWatcher;
 import android.view.Gravity;
+import android.view.InputDevice;
+import android.view.KeyEvent;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
@@ -256,6 +259,140 @@ public class SettingsActivity extends Activity {
             write("arrange", true);
             finish();
         }));
+        content.addView(divider(8));
+        gamepadPart();
+    }
+
+    /* A gamepad's buttons (port/src/front_sdl.c, pad_keys): "pad.NAME=BUTTON,..." lines, NAME a
+       button of the DS's and BUTTON one of the gamepad's by where it is. */
+    private static final String[] PAD_DS = {"a", "b", "x", "y", "l", "r", "start", "select", "up", "down", "left", "right"};
+    private static final String[] PAD_DS_LABEL = {"A", "B", "X", "Y", "L", "R", "START", "SELECT", "\u2191", "\u2193", "\u2190", "\u2192"};
+    private static final String[] PAD_DEFAULT = {"b", "a", "y", "x", "l1,l2", "r1,r2", "start", "select", "up", "down", "left", "right"};
+
+    private void gamepadPart() {
+        content.addView(heading(R.string.settings_pad_title));
+        StringBuilder names = new StringBuilder();
+        for (int id : InputDevice.getDeviceIds()) {
+            InputDevice device = InputDevice.getDevice(id);
+            if (device != null && !device.isVirtual() && (device.getSources() & InputDevice.SOURCE_GAMEPAD) == InputDevice.SOURCE_GAMEPAD) {
+                names.append(names.length() > 0 ? ", " : "").append(device.getName());
+            }
+        }
+        content.addView(note(names.length() > 0 ? getString(R.string.settings_pad_found, names.toString())
+                : getString(R.string.settings_pad_none)));
+        content.addView(note(getString(R.string.settings_pad_about)));
+        content.addView(toggle("pad_hide", true, R.string.settings_pad_hide, R.string.settings_pad_hide_about, false, null));
+        final Button[] rows = new Button[PAD_DS.length];
+        for (int i = 0; i < PAD_DS.length; i++) {
+            final int at = i;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView name = new TextView(this);
+            name.setText(getString(R.string.settings_pad_ds, PAD_DS_LABEL[i]));
+            name.setTextSize(16);
+            row.addView(name, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+            rows[i] = new Button(this);
+            rows[i].setAllCaps(false);
+            rows[i].setText(padNames(padSources(i)));
+            rows[i].setOnClickListener(v -> padAsk(at, rows[at]));
+            row.addView(rows[i]);
+            content.addView(row);
+        }
+        content.addView(button(R.string.settings_pad_reset, () -> {
+            for (int i = 0; i < PAD_DS.length; i++) {
+                removeLine("pad." + PAD_DS[i]);
+                rows[i].setText(padNames(PAD_DEFAULT[i]));
+            }
+        }));
+    }
+
+    private String padSources(int ds) {
+        String set = readText("pad." + PAD_DS[ds]);
+        return set.isEmpty() ? PAD_DEFAULT[ds] : set;
+    }
+
+    /** The gamepad's buttons of a list, as the player reads them. */
+    private String padNames(String sources) {
+        StringBuilder out = new StringBuilder();
+        for (String source : sources.split(",")) {
+            int id = getResources().getIdentifier("pad_button_" + source.trim(), "string", getPackageName());
+            out.append(out.length() > 0 ? ", " : "").append(id != 0 ? getString(id) : source.trim());
+        }
+        return out.toString();
+    }
+
+    /** Asks for the gamepad's button that is to be this button of the DS's: the next one
+     *  pressed (a trigger or the pad's own directions count, which some gamepads give as
+     *  positions and not as buttons). */
+    private void padAsk(final int ds, final Button shown) {
+        final View catcher = new View(this);
+        catcher.setFocusable(true);
+        catcher.setFocusableInTouchMode(true);
+        final AlertDialog dialog = new AlertDialog.Builder(this)
+                .setTitle(getString(R.string.settings_pad_ds, PAD_DS_LABEL[ds]))
+                .setMessage(R.string.settings_pad_press)
+                .setView(catcher)
+                .setNegativeButton(android.R.string.cancel, null)
+                .create();
+        final String[] taken = new String[1];
+        final Runnable done = () -> {
+            if (taken[0] != null) {
+                writeLine("pad." + PAD_DS[ds], taken[0]);
+                shown.setText(padNames(taken[0]));
+                dialog.dismiss();
+            }
+        };
+        dialog.setOnKeyListener((d, code, event) -> {
+            String source = padButton(code);
+            if (source == null) {
+                return false;
+            }
+            if (event.getAction() == KeyEvent.ACTION_DOWN && event.getRepeatCount() == 0) {
+                taken[0] = source;
+                done.run();
+            }
+            return true;
+        });
+        catcher.setOnGenericMotionListener((v, event) -> {
+            if ((event.getSource() & InputDevice.SOURCE_JOYSTICK) != InputDevice.SOURCE_JOYSTICK || taken[0] != null) {
+                return false;
+            }
+            float left = Math.max(event.getAxisValue(MotionEvent.AXIS_LTRIGGER), event.getAxisValue(MotionEvent.AXIS_BRAKE));
+            float right = Math.max(event.getAxisValue(MotionEvent.AXIS_RTRIGGER), event.getAxisValue(MotionEvent.AXIS_GAS));
+            float hatX = event.getAxisValue(MotionEvent.AXIS_HAT_X), hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y);
+            taken[0] = left > 0.6f ? "l2" : right > 0.6f ? "r2" : hatX < -0.5f ? "left" : hatX > 0.5f ? "right"
+                    : hatY < -0.5f ? "up" : hatY > 0.5f ? "down" : null;
+            done.run();
+            return taken[0] != null;
+        });
+        dialog.show();
+        catcher.requestFocus();
+    }
+
+    /** A gamepad's button by Android's code for it, as the game names it (SDL's names, which
+     *  go by where a button is), or null for a key that is not a gamepad's. */
+    private static String padButton(int code) {
+        switch (code) {
+            case KeyEvent.KEYCODE_BUTTON_A: return "a";
+            case KeyEvent.KEYCODE_BUTTON_B: return "b";
+            case KeyEvent.KEYCODE_BUTTON_X: return "x";
+            case KeyEvent.KEYCODE_BUTTON_Y: return "y";
+            case KeyEvent.KEYCODE_BUTTON_L1: return "l1";
+            case KeyEvent.KEYCODE_BUTTON_R1: return "r1";
+            case KeyEvent.KEYCODE_BUTTON_L2: return "l2";
+            case KeyEvent.KEYCODE_BUTTON_R2: return "r2";
+            case KeyEvent.KEYCODE_BUTTON_THUMBL: return "l3";
+            case KeyEvent.KEYCODE_BUTTON_THUMBR: return "r3";
+            case KeyEvent.KEYCODE_BUTTON_START: return "start";
+            case KeyEvent.KEYCODE_BUTTON_SELECT: return "select";
+            case KeyEvent.KEYCODE_BUTTON_MODE: return "guide";
+            case KeyEvent.KEYCODE_DPAD_UP: return "up";
+            case KeyEvent.KEYCODE_DPAD_DOWN: return "down";
+            case KeyEvent.KEYCODE_DPAD_LEFT: return "left";
+            case KeyEvent.KEYCODE_DPAD_RIGHT: return "right";
+            default: return null;
+        }
     }
 
     private void gamePage() {

@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.view.View;
 import android.view.WindowInsets;
 import android.view.inputmethod.InputMethodManager;
+import android.widget.Toast;
 
 import org.libsdl.app.SDLActivity;
 
@@ -91,6 +92,27 @@ public class MainActivity extends SDLActivity {
             }
         });
     }
+
+    /** Called by the game (front_sdl.c, save_now) from its own thread, after the mark at the
+     *  top was tapped: the town was saved, or why it was not (autosave.h's numbers). */
+    public void saveSaid(final int said) {
+        final int text = said == 0 ? R.string.save_done
+                : said == 1 || said == 2 ? R.string.save_no_town
+                : said == 3 ? R.string.save_first_day
+                : said == 4 ? R.string.save_game_saving
+                : said == 5 ? R.string.save_busy
+                : said == 6 ? R.string.save_event
+                : R.string.save_failed;
+        runOnUiThread(() -> {
+            if (saveToast != null) {
+                saveToast.cancel();
+            }
+            saveToast = Toast.makeText(this, text, said == 0 ? Toast.LENGTH_SHORT : Toast.LENGTH_LONG);
+            saveToast.show();
+        });
+    }
+
+    private Toast saveToast;
 
     /** Called by the game (front_sdl.c, open_settings) from its own thread. */
     public void openSettings() {

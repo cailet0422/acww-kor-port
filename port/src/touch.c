@@ -83,10 +83,11 @@ static void add_button(Layout *l, int item, uint32_t key, const char *label, int
     }
 }
 
-/* The four face buttons in a diamond around (cx, cy), each of radius r. */
+/* The four face buttons in a diamond around (cx, cy), each of radius r, a third of a radius
+ * apart from their neighbours (nearer, a thumb on one is on the next as well). */
 static void add_face(Layout *l, double cx, double cy, double r)
 {
-    double d = r * 1.25;
+    double d = r * 1.65;
     add_button(l, ITEM_FACE, DS_KEY_A, "A", 1, rect(cx + d - r, cy - r, 2 * r, 2 * r));
     add_button(l, ITEM_FACE, DS_KEY_B, "B", 1, rect(cx - r, cy + d - r, 2 * r, 2 * r));
     add_button(l, ITEM_FACE, DS_KEY_X, "X", 1, rect(cx - r, cy - d - r, 2 * r, 2 * r));
@@ -201,6 +202,8 @@ Layout layout_compute(int w, int h, int touch, int full_touch)
     /* the mark for the buttons: a corner of the room left over, else of the picture */
     double mark = (w < h ? w : h) * 0.075;
     l.toggle = rect(w - mark * 1.25, h - mark * 1.25, mark, mark);
+    /* the mark that saves: the window's top, at the right */
+    l.save = rect(w - mark * 1.5, mark * 0.6, mark, mark);
     if (!buttons) {
         return l;
     }
@@ -431,9 +434,21 @@ static uint32_t keys_at(const Layout *l, int x, int y)
     return keys;
 }
 
+/* the finger on the mark that saves */
+static int save_down;
+static int64_t save_finger;
+
 TouchPen touch_finger(const Layout *l, TouchAction action, int64_t id, int x, int y, uint32_t frame)
 {
-    TouchPen pen = {0, 0, x, y, 0, 0, 0};
+    TouchPen pen = {0, 0, x, y, 0, 0, 0, 0};
+    /* the mark that saves: a tap on it (the finger down and up on it) */
+    if (save_down && save_finger == id) {
+        if (action == TOUCH_UP) {
+            save_down = 0;
+            pen.save = on_rect(&l->save, x, y);
+        }
+        return pen;
+    }
     /* the mark: it opens the settings screen where there is one; else a tap turns the buttons
        off or on and a hold opens the arranging (touch_held) */
     if (arrange.mark_down && arrange.mark_finger == id) {
@@ -459,6 +474,11 @@ TouchPen touch_finger(const Layout *l, TouchAction action, int64_t id, int x, in
         pen_taken |= fingers[i].used && fingers[i].pen;
     }
     if (action == TOUCH_DOWN) {
+        if (l->touch && l->save.w > 0 && on_rect(&l->save, x, y)) {
+            save_down = 1;
+            save_finger = id;
+            return pen;
+        }
         if (l->touch && on_rect(&l->toggle, x, y)) {
             arrange.mark_down = 1;
             arrange.mark_fired = 0;
@@ -722,16 +742,65 @@ static void draw_arranging(SDL_Renderer *r, const Layout *l)
     }
 }
 
+/* A part of a ring between two radii and two angles, as one quad (a tooth of the gear, or a
+ * piece of its rim: side by side, none over another, so that a faint white stays even). */
+static void ring_part(SDL_Renderer *r, double cx, double cy, double inner, double outer, double from, double to, SDL_Color c)
+{
+    SDL_Vertex v[4] = {{{(float) (cx + inner * cos(from)), (float) (cy + inner * sin(from))}, c, {0, 0}},
+                       {{(float) (cx + outer * cos(from)), (float) (cy + outer * sin(from))}, c, {0, 0}},
+                       {{(float) (cx + outer * cos(to)), (float) (cy + outer * sin(to))}, c, {0, 0}},
+                       {{(float) (cx + inner * cos(to)), (float) (cy + inner * sin(to))}, c, {0, 0}}};
+    static const int idx[6] = {0, 1, 2, 0, 2, 3};
+    SDL_RenderGeometry(r, NULL, v, 4, idx, 6);
+}
+
+/* A gear: a rim with a hole in the middle, and eight teeth around it. */
+static void draw_gear(SDL_Renderer *r, double cx, double cy, double radius, SDL_Color c)
+{
+    enum { TEETH = 8, PARTS = 4 * TEETH };
+    for (int i = 0; i < PARTS; i++) {
+        double from = 2 * M_PI * i / PARTS, to = 2 * M_PI * (i + 1) / PARTS;
+        ring_part(r, cx, cy, radius * 0.36, radius * 0.72, from, to, c);
+        if (i % 4 == 0) {
+            /* a tooth, a little narrower at its tip */
+            ring_part(r, cx, cy, radius * 0.72, radius, from + (to - from) * 0.08, to + (to - from) * 0.92, c);
+        }
+    }
+}
+
+/* A disk as one saves on: its case, with the label's window in its lower part (what is under
+ * it shows through) and the shutter, darker, at its top. */
+static void draw_disk(SDL_Renderer *r, double cx, double cy, double radius, SDL_Color c)
+{
+    int s = (int) (radius * 1.25), x = (int) cx - s / 2, y = (int) cy - s / 2;
+    SDL_Rect label = {x + s / 5, y + s * 11 / 20, s - 2 * (s / 5), s * 9 / 20 - s / 8};
+    /* the case around the window, in pieces that do not lie over one another */
+    SDL_Rect pieces[4] = {{x, y, s, label.y - y},
+                          {x, label.y, label.x - x, label.h},
+                          {label.x + label.w, label.y, x + s - (label.x + label.w), label.h},
+                          {x, label.y + label.h, s, y + s - (label.y + label.h)}};
+    SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+    SDL_RenderFillRects(r, pieces, 4);
+    SDL_Rect shutter = {x + s * 3 / 10, y, s * 4 / 10, s * 3 / 10};
+    SDL_SetRenderDrawColor(r, 0, 0, 0, 150);
+    SDL_RenderFillRect(r, &shutter);
+}
+
 void touch_draw(SDL_Renderer *r, const Layout *l, uint32_t held)
 {
-    /* the mark for the buttons: three dots, fainter when it is all that is drawn */
+    /* the mark for the settings: a gear, fainter when it is all that is drawn */
     if (l->touch && l->toggle.w > 0) {
-        int d = l->toggle.w / 7, cy = l->toggle.y + l->toggle.h / 2;
-        SDL_Color c = {255, 255, 255, (Uint8) (l->full_touch ? 90 : 140)}, under = {0, 0, 0, 60};
-        fill_circle(r, l->toggle.x + l->toggle.w / 2, cy, l->toggle.w * 2 / 3, under);
-        for (int i = -1; i <= 1; i++) {
-            fill_circle(r, l->toggle.x + l->toggle.w / 2 + i * (l->toggle.w / 3), cy, d > 2 ? d : 2, c);
-        }
+        double cx = l->toggle.x + l->toggle.w / 2.0, cy = l->toggle.y + l->toggle.h / 2.0;
+        SDL_Color c = {255, 255, 255, (Uint8) (l->full_touch ? 110 : 170)}, under = {0, 0, 0, 70};
+        fill_circle(r, (int) cx, (int) cy, l->toggle.w * 2 / 3, under);
+        draw_gear(r, cx, cy, l->toggle.w * 0.5, c);
+    }
+    /* the mark that saves: a disk at the window's top */
+    if (l->touch && l->save.w > 0) {
+        double cx = l->save.x + l->save.w / 2.0, cy = l->save.y + l->save.h / 2.0;
+        SDL_Color c = {255, 255, 255, 150}, under = {0, 0, 0, 70};
+        fill_circle(r, (int) cx, (int) cy, l->save.w * 2 / 3, under);
+        draw_disk(r, cx, cy, l->save.w * 0.5, c);
     }
     if (l->full_touch) {
         return;
